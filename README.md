@@ -17,6 +17,10 @@ No screen, no camera, no hands. The intended end state is playing entirely
 blind on haptics alone; a live web dashboard (below) exists for practicing and
 debugging until you get there.
 
+Free and open source under the [MIT license](LICENSE), standing on the
+shoulders of free and open source giants: buttplug.io, Viam, Stockfish,
+python-chess, and bleak.
+
 ## The building blocks
 
 ### Hardware
@@ -171,11 +175,17 @@ curl https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-serv
 # or build from source: clone viamrobotics/rdk, `make server`
 ```
 
+**Intiface Central** (the buttplug.io server that drives the Hush): download
+the desktop app from [intiface.com/central](https://intiface.com/central/) —
+free, open source, macOS/Windows/Linux. Install it like any app; no account
+needed.
+
 Runtime prerequisites:
 
-- **Intiface Central** running (`ws://127.0.0.1:12345`) with the Hush
-  connected — and *not* holding the kGoal (only one thing can own its BLE
-  connection; disconnect "Boost" in Intiface if it grabbed it while scanning)
+- **Intiface Central** running with the engine started (big play button,
+  websocket on `ws://127.0.0.1:12345`) and the Hush connected — and *not*
+  holding the kGoal (only one thing can own its BLE connection; disconnect
+  "Boost" in Intiface if it grabbed it while scanning)
 - kGoal Boost powered on
 - macOS: the process needs Bluetooth permission — grant it to the terminal app
   that launches `viam-server` (System Settings → Privacy & Security → Bluetooth)
@@ -366,3 +376,8 @@ Covers squeeze detection (drift, debounce, hysteresis, short/long boundaries),
 the move codec (knight ambiguity, pawn-capture ambiguity, promotion, castling,
 en passant), and the full game loop (fool's mate, disambiguation exchange,
 cancel/replay, promotion query, activity log).
+
+## License
+
+[MIT](LICENSE) — do whatever you like with it. If you build something even
+more cursed on top of this, the author would genuinely love to hear about it.

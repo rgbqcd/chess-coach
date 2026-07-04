@@ -2,6 +2,7 @@
 name = "chess-playing"
 version = "0.1.0"
 description = "Haptic chess assistant Viam module: kGoal Boost squeeze input, Lovense Hush 2 buzz output, Stockfish brain"
+license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "viam-sdk>=0.79.0",
