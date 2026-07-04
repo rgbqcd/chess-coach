@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import shutil
 from typing import ClassVar, Mapping, Optional, Sequence, Tuple
 
 import chess
@@ -31,14 +32,12 @@ from ..lib.game import ChessCoach, CoachConfig, StockfishEngine
 
 LOGGER = getLogger(__name__)
 
-POLL_INTERVAL_S = 0.1
-
-
 class ViamInput:
     """InputSource backed by the squeeze sensor's do_command interface."""
 
-    def __init__(self, sensor: Sensor):
+    def __init__(self, sensor: Sensor, poll_s: float = 0.1):
         self.sensor = sensor
+        self.poll_s = poll_s
         self.queue: asyncio.Queue[str] = asyncio.Queue()
         self._since_seq = 0
         self._task: Optional[asyncio.Task] = None
@@ -58,7 +57,7 @@ class ViamInput:
         except Exception:
             LOGGER.debug("initial get_events failed", exc_info=True)
         while True:
-            await asyncio.sleep(POLL_INTERVAL_S)
+            await asyncio.sleep(self.poll_s)
             try:
                 result = await self.sensor.do_command({"command": "get_events", "since_seq": self._since_seq})
             except Exception:
@@ -111,7 +110,9 @@ class ChessCoachService(GenericService, EasyResource):
         super().__init__(name)
         self.sensor: Optional[Sensor] = None
         self.buzzer: Optional[GenericComponent] = None
-        self.stockfish_path = "/opt/homebrew/bin/stockfish"
+        self.stockfish_path = ""
+        self.input_poll_s = 0.1
+        self.practice_restart_delay_s = 2.0
         self.engine_skill = 5
         self.engine_time_s = 1.0
         self.auto_start = True
@@ -146,14 +147,20 @@ class ChessCoachService(GenericService, EasyResource):
         self.sensor = sensor_dep
         self.buzzer = buzzer_dep
 
-        self.stockfish_path = str(attrs.get("stockfish_path", "/opt/homebrew/bin/stockfish"))
+        default_stockfish = shutil.which("stockfish") or "/opt/homebrew/bin/stockfish"
+        self.stockfish_path = str(attrs.get("stockfish_path", default_stockfish))
+        self.input_poll_s = float(attrs.get("input_poll_ms", 100)) / 1000
+        self.practice_restart_delay_s = float(attrs.get("practice_restart_delay_s", 2.0))
         self.engine_skill = int(attrs.get("engine_skill", 5))
         self.engine_time_s = float(attrs.get("engine_time_s", 1.0))
         self.auto_start = bool(attrs.get("auto_start", True))
         self.practice_mode = bool(attrs.get("practice_mode", False))
         self.coach_cfg = CoachConfig(
             group_gap_s=float(attrs.get("group_gap_ms", 1500)) / 1000,
+            message_timeout_s=float(attrs.get("message_timeout_s", 45)),
             confirm_timeout_s=float(attrs.get("confirm_timeout_s", 30)),
+            capture_seconds=float(attrs.get("capture_seconds", 3.0)),
+            min_calibration_span=float(attrs.get("min_calibration_span", 100)),
             skip_calibration=bool(attrs.get("skip_calibration", False)),
         )
 
@@ -173,7 +180,7 @@ class ChessCoachService(GenericService, EasyResource):
     async def _run_session(self) -> None:
         assert self.sensor is not None and self.buzzer is not None
         engine = None
-        self.input = ViamInput(self.sensor)
+        self.input = ViamInput(self.sensor, self.input_poll_s)
         self.input.start()
         last_color = None
         try:
@@ -197,7 +204,7 @@ class ChessCoachService(GenericService, EasyResource):
                 cfg = dataclasses.replace(cfg, skip_calibration=True)
                 self.coach_cfg = dataclasses.replace(self.coach_cfg, skip_calibration=True)
                 self.input.clear()
-                await asyncio.sleep(2)
+                await asyncio.sleep(self.practice_restart_delay_s)
         except asyncio.CancelledError:
             raise
         except Exception:

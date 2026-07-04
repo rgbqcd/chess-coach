@@ -54,6 +54,7 @@ class KgoalBoost(Sensor, EasyResource):
         self.connected = False
         self.device_name = "Boost"
         self.device_address = ""
+        self.scan_timeout_s = 15.0
         self._task: Optional[asyncio.Task] = None
         self._disconnected: Optional[asyncio.Event] = None
 
@@ -66,7 +67,7 @@ class KgoalBoost(Sensor, EasyResource):
     @classmethod
     def validate_config(cls, config: ComponentConfig) -> Tuple[Sequence[str], Sequence[str]]:
         attrs = struct_to_dict(config.attributes)
-        for frac in ("on_fraction", "off_fraction"):
+        for frac in ("on_fraction", "off_fraction", "ema_alpha"):
             if frac in attrs and not 0 < float(attrs[frac]) < 1:
                 raise ValueError(f"{frac} must be between 0 and 1")
         return [], []
@@ -75,6 +76,7 @@ class KgoalBoost(Sensor, EasyResource):
         attrs = struct_to_dict(config.attributes)
         self.device_name = str(attrs.get("device_name", "Boost"))
         self.device_address = str(attrs.get("device_address", ""))
+        self.scan_timeout_s = float(attrs.get("scan_timeout_s", 15.0))
 
         old = self.detector
         self.detector = SqueezeDetector(
@@ -82,6 +84,7 @@ class KgoalBoost(Sensor, EasyResource):
             min_press_ms=int(attrs.get("min_press_ms", 80)),
             on_fraction=float(attrs.get("on_fraction", 0.35)),
             off_fraction=float(attrs.get("off_fraction", 0.20)),
+            ema_alpha=float(attrs.get("ema_alpha", 0.02)),
         )
         if old.calibrated:
             self.detector.set_calibration(old.baseline, old.baseline + old.span)
@@ -115,7 +118,7 @@ class KgoalBoost(Sensor, EasyResource):
                 if self.device_address:
                     device: Any = self.device_address
                 else:
-                    device = await BleakScanner.find_device_by_name(self.device_name, timeout=15.0)
+                    device = await BleakScanner.find_device_by_name(self.device_name, timeout=self.scan_timeout_s)
                     if device is None:
                         raise RuntimeError(f"no BLE device named {self.device_name!r} found")
 

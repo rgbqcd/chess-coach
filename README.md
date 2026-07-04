@@ -284,11 +284,48 @@ offers debugging hooks: `state` (FEN, history, current phase), `reset`,
 the whole protocol works with zero hardware), `input_move` (UCI bypass), and
 `correct_user_move` (for when you didn't play the recommendation).
 
-All protocol timing is config: squeeze classification (`long_press_ms`,
-`on_fraction`, `off_fraction`) on the sensor; buzz feel (`dot_ms`, `dash_ms`,
-`gap_ms`, `group_gap_ms`, `intensity`) on the buzzer; input pacing
-(`group_gap_ms`, `confirm_timeout_s`) and engine strength (`engine_skill`
-0–20, `engine_time_s`) on the coach. See `viam.json` for the full example.
+Everything tunable is a config attribute (all optional except the coach's two
+dependency names):
+
+**kgoal-boost** (sensor)
+| attribute | default | |
+|---|---|---|
+| `device_name` | `"Boost"` | BLE advertised name to scan for |
+| `device_address` | `""` | connect by address instead of scanning |
+| `scan_timeout_s` | `15` | BLE scan timeout per connect attempt |
+| `long_press_ms` | `500` | squeeze ≥ this = long |
+| `min_press_ms` | `80` | squeezes shorter than this are debounced |
+| `on_fraction` / `off_fraction` | `0.35` / `0.20` | hysteresis thresholds as a fraction of calibrated span |
+| `ema_alpha` | `0.02` | baseline drift tracking rate (0–1) |
+
+**hush-buzzer** (generic component)
+| attribute | default | |
+|---|---|---|
+| `ws_url` | `ws://127.0.0.1:12345` | Intiface Central websocket |
+| `device_match` | `"Hush"` | substring of the device name to use |
+| `client_name` | `"chess-playing"` | name shown in Intiface |
+| `scan_seconds` | `5` | scan duration when the device isn't connected yet |
+| `dot_ms` / `dash_ms` | `200` / `600` | buzz durations |
+| `gap_ms` / `group_gap_ms` | `250` / `900` | within-group / between-group silence |
+| `intensity` / `error_intensity` | `0.7` / `0.4` | vibration levels (0–1] |
+
+**chess-coach** (generic service)
+| attribute | default | |
+|---|---|---|
+| `input_sensor` / `output_buzzer` | *(required)* | names of the two components |
+| `stockfish_path` | `which stockfish` | UCI engine binary |
+| `engine_skill` | `5` | Stockfish Skill Level 0–20 |
+| `engine_time_s` | `1.0` | think time per move |
+| `practice_mode` | `false` | AI opponent mode (see above) |
+| `practice_restart_delay_s` | `2` | pause before the next practice game |
+| `group_gap_ms` | `1500` | input pause that closes a count group |
+| `message_timeout_s` | `45` | max wait between groups of one message |
+| `confirm_timeout_s` | `30` | wait for confirm/ack answers |
+| `capture_seconds` | `3` | length of each calibration capture |
+| `min_calibration_span` | `100` | required relaxed→squeezed pressure span |
+| `input_poll_ms` | `100` | how often the coach polls the sensor for events |
+| `auto_start` | `true` | start a session on boot |
+| `skip_calibration` | `false` | skip the calibration phase |
 
 ## Tests
 

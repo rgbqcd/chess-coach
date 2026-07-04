@@ -37,6 +37,8 @@ class HushBuzzer(Generic, EasyResource):
         super().__init__(name)
         self.ws_url = "ws://127.0.0.1:12345"
         self.device_match = "Hush"
+        self.client_name = "chess-playing"
+        self.scan_seconds = 5.0
         self.timing = Timing()
         self.client: Optional[ButtplugClient] = None
         self.device: Optional[ButtplugDevice] = None
@@ -61,6 +63,8 @@ class HushBuzzer(Generic, EasyResource):
         attrs = struct_to_dict(config.attributes)
         self.ws_url = str(attrs.get("ws_url", "ws://127.0.0.1:12345"))
         self.device_match = str(attrs.get("device_match", "Hush"))
+        self.client_name = str(attrs.get("client_name", "chess-playing"))
+        self.scan_seconds = float(attrs.get("scan_seconds", 5.0))
         self.timing = Timing(
             dot_ms=int(attrs.get("dot_ms", 200)),
             dash_ms=int(attrs.get("dash_ms", 600)),
@@ -88,7 +92,7 @@ class HushBuzzer(Generic, EasyResource):
             try:
                 if self.client is None or not self.client.connected:
                     self.device = None
-                    client = ButtplugClient("chess-playing")
+                    client = ButtplugClient(self.client_name)
                     client.on_device_removed = self._on_device_removed
                     client.on_server_disconnect = self._on_server_disconnect
                     await client.connect(self.ws_url)
@@ -100,7 +104,7 @@ class HushBuzzer(Generic, EasyResource):
                     self.device = self._pick_device()
                     if self.device is None:
                         await self.client.start_scanning()
-                        await asyncio.sleep(5)
+                        await asyncio.sleep(self.scan_seconds)
                         try:
                             await self.client.stop_scanning()
                         except Exception:
