@@ -376,8 +376,3 @@ Covers squeeze detection (drift, debounce, hysteresis, short/long boundaries),
 the move codec (knight ambiguity, pawn-capture ambiguity, promotion, castling,
 en passant), and the full game loop (fool's mate, disambiguation exchange,
 cancel/replay, promotion query, activity log).
-
-## License
-
-[MIT](LICENSE) — do whatever you like with it. If you build something even
-more cursed on top of this, the author would genuinely love to hear about it.
