@@ -152,11 +152,23 @@ games/fails tally, and a **new game** button restarts on demand.
 
 ## Setup
 
-Built with [uv](https://docs.astral.sh/uv/):
+Python environment (built with [uv](https://docs.astral.sh/uv/)):
 
 ```sh
 uv sync                     # or ./setup.sh
 brew install stockfish
+```
+
+**viam-server**:
+
+```sh
+# macOS
+brew tap viamrobotics/brews && brew install viam-server
+
+# Linux
+curl https://storage.googleapis.com/packages.viam.com/apps/viam-server/viam-server-stable-x86_64 -o viam-server && chmod 755 viam-server
+
+# or build from source: clone viamrobotics/rdk, `make server`
 ```
 
 Runtime prerequisites:
@@ -176,8 +188,9 @@ so the dashboard can hold your hand.
 ### 1. One-time setup
 
 ```sh
-uv sync
-brew install stockfish
+uv sync                                            # python deps
+brew install stockfish                             # the chess brain
+brew tap viamrobotics/brews && brew install viam-server   # the robot server
 ```
 
 Install [Intiface Central](https://intiface.com/central/) and give your
