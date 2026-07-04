@@ -19,6 +19,21 @@ debugging until you get there.
 
 ## The building blocks
 
+### Hardware
+
+- **[Minna kGoal Boost](https://www.minnalife.com/products/kgoal-boost)** — the
+  input device: a bluetooth kegel trainer with a pressure sensor (0–2000
+  counts, streamed over BLE). The sensor model speaks its BLE protocol
+  directly, so this exact device is required for input.
+- **[Lovense Hush 2](https://www.lovense.com/butt-plug/hush)** — the output
+  device: a bluetooth vibrating plug. Output goes through buttplug.io, so any
+  vibrator [supported by buttplug](https://iostindex.com) should work — set
+  the buzzer's `device_match` attribute to its name.
+- **A computer with Bluetooth LE** — both devices connect to it directly; no
+  phone or vendor dongle needed. Developed and tested on macOS (Apple
+  Silicon); Linux should work but is untested.
+- A physical chess set and an unsuspecting opponent (not included).
+
 ### buttplug.io
 
 [Buttplug](https://buttplug.io) is an open-source protocol and server for
