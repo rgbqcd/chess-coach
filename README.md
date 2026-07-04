@@ -1,4 +1,5 @@
-<img width="1111" height="595" alt="Screenshot 2026-07-04 at 18 56 06" src="https://github.com/user-attachments/assets/87dc3dac-afd9-4ed4-b584-1157d8f22a6b" />
+<img width="1111" height="595" alt="Screenshot 2026-07-04 at 18 56 06" src="https://github.com/user-attachments/assets/ca9d7e0e-1044-4101-927a-d554e6e43996" />
+
 
 
 # Chess Playing Butt Plug System
