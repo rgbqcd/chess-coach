@@ -1,0 +1,24 @@
+[project]
+name = "chess-playing"
+version = "0.1.0"
+description = "Haptic chess assistant Viam module: kGoal Boost squeeze input, Lovense Hush 2 buzz output, Stockfish brain"
+requires-python = ">=3.11"
+dependencies = [
+    "viam-sdk>=0.79.0",
+    "buttplug==1.0.0",
+    "bleak>=0.22",
+    "chess>=1.11",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.uv]
+package = false

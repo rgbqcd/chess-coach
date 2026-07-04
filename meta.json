@@ -1,0 +1,33 @@
+{
+  "module_id": "rgbqcd:chess-playing",
+  "visibility": "private",
+  "url": "",
+  "description": "Haptic chess assistant: kGoal Boost squeeze input, Lovense Hush 2 buzz output, Stockfish brain",
+  "models": [
+    {
+      "api": "rdk:component:sensor",
+      "model": "rgbqcd:chess-playing:kgoal-boost"
+    },
+    {
+      "api": "rdk:component:generic",
+      "model": "rgbqcd:chess-playing:hush-buzzer"
+    },
+    {
+      "api": "rdk:service:generic",
+      "model": "rgbqcd:chess-playing:chess-coach"
+    },
+    {
+      "api": "rdk:component:sensor",
+      "model": "rgbqcd:chess-playing:fake-kgoal"
+    },
+    {
+      "api": "rdk:component:generic",
+      "model": "rgbqcd:chess-playing:fake-buzzer"
+    }
+  ],
+  "entrypoint": "run.sh",
+  "build": {
+    "build": "./setup.sh",
+    "path": "."
+  }
+}

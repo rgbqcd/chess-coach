@@ -1,0 +1,43 @@
+{
+  "network": {
+    "bind_address": "localhost:8080"
+  },
+  "modules": [
+    {
+      "name": "chess-playing",
+      "executable_path": "/path/to/chess-playing/run.sh",
+      "log_level": "debug"
+    }
+  ],
+  "components": [
+    {
+      "name": "kgoal",
+      "namespace": "rdk",
+      "type": "sensor",
+      "model": "rgbqcd:chess-playing:fake-kgoal"
+    },
+    {
+      "name": "hush",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:fake-buzzer"
+    }
+  ],
+  "services": [
+    {
+      "name": "coach",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:chess-coach",
+      "attributes": {
+        "input_sensor": "kgoal",
+        "output_buzzer": "hush",
+        "stockfish_path": "/opt/homebrew/bin/stockfish",
+        "engine_skill": 5,
+        "engine_time_s": 0.2,
+        "skip_calibration": true,
+        "auto_start": true
+      }
+    }
+  ]
+}

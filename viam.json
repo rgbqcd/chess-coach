@@ -1,0 +1,61 @@
+{
+  "network": {
+    "bind_address": "localhost:8080"
+  },
+  "modules": [
+    {
+      "name": "chess-playing",
+      "executable_path": "/path/to/chess-playing/run.sh",
+      "log_level": "info"
+    }
+  ],
+  "components": [
+    {
+      "name": "kgoal",
+      "namespace": "rdk",
+      "type": "sensor",
+      "model": "rgbqcd:chess-playing:kgoal-boost",
+      "attributes": {
+        "device_name": "Boost",
+        "long_press_ms": 500,
+        "min_press_ms": 80,
+        "on_fraction": 0.35,
+        "off_fraction": 0.2
+      }
+    },
+    {
+      "name": "hush",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:hush-buzzer",
+      "attributes": {
+        "ws_url": "ws://127.0.0.1:12345",
+        "device_match": "Hush",
+        "dot_ms": 200,
+        "dash_ms": 600,
+        "gap_ms": 250,
+        "group_gap_ms": 900,
+        "intensity": 0.7,
+        "error_intensity": 0.4
+      }
+    }
+  ],
+  "services": [
+    {
+      "name": "coach",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:chess-coach",
+      "attributes": {
+        "input_sensor": "kgoal",
+        "output_buzzer": "hush",
+        "stockfish_path": "/opt/homebrew/bin/stockfish",
+        "engine_skill": 5,
+        "engine_time_s": 1.0,
+        "group_gap_ms": 1500,
+        "confirm_timeout_s": 30,
+        "auto_start": true
+      }
+    }
+  ]
+}
