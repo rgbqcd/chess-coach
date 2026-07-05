@@ -1,5 +1,4 @@
-<img width="1111" height="595" alt="Screenshot 2026-07-04 at 18 56 06" src="https://github.com/user-attachments/assets/ca9d7e0e-1044-4101-927a-d554e6e43996" />
-
+<img width="1103" height="849" alt="Screenshot 2026-07-05 at 09 54 48" src="https://github.com/user-attachments/assets/6e57f171-db38-4933-a643-cbe533923d24" />
 
 
 # Chess Playing Butt Plug System
@@ -194,7 +193,7 @@ Runtime prerequisites:
 ## Your first game
 
 A full walkthrough, from cold start to (haptic) checkmate, using practice mode
-so the dashboard can hold your hand.
+so the dashboard can hold your... hand.
 
 ### 1. One-time setup
 
