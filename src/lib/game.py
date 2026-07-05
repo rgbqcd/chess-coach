@@ -32,9 +32,8 @@ HINTS = {
     "calibrate_squeeze": "SQUEEZE HARD — capturing peak (3 s)",
     "wait_color": "squeeze your color: 1 short = white, 2 shorts = black",
     "confirm_color": "confirm the color echo: 1 = yes, 2 = no",
-    "wait_opponent_input": "enter the opponent's move: piece · file · rank",
+    "wait_opponent_input": "enter the opponent's move: from-square then to-square (file·rank·file·rank)",
     "confirm_move": "confirm the move echo: 1 = yes, 2 = no",
-    "disambiguate": "several pieces match — origins buzzing: 1 = this one, 2 = next",
     "promotion_query": "promotion piece: 1=Q 2=N 3=R 4=B",
     "engine_think": "engine thinking…",
     "output_move": "buzzing the recommended move…",
@@ -108,7 +107,14 @@ class StockfishEngine:
 class ChessCoach:
     """Runs one haptic chess session. Instantiate per game."""
 
-    def __init__(self, input_source: InputSource, output: OutputSink, engine: Engine, cfg: CoachConfig | None = None):
+    def __init__(
+        self,
+        input_source: InputSource,
+        output: OutputSink,
+        engine: Engine,
+        cfg: CoachConfig | None = None,
+        log: deque | None = None,
+    ):
         self.input = input_source
         self.output = output
         self.engine = engine
@@ -121,8 +127,9 @@ class ChessCoach:
         self.last_message: list[int] = []
         self.expected_move: chess.Move | None = None  # practice: the move to enter
         self.expected_san: str | None = None
-        self.log: deque = deque(maxlen=300)
-        self._log_seq = 0
+        # a shared log deque lets the activity feed survive practice-game restarts
+        self.log: deque = log if log is not None else deque(maxlen=300)
+        self._log_seq = int(self.log[-1]["seq"]) if self.log else 0
 
     # ---- introspection (for do_command "state") ----
 
@@ -184,11 +191,11 @@ class ChessCoach:
                 raise MoveBypass(ev[5:])
 
     async def _read_message(self) -> list[int]:
-        """One 3-group message. First squeeze waits indefinitely."""
+        """One 4-group message. First squeeze waits indefinitely."""
         while True:
             try:
                 groups = []
-                for i in range(3):
+                for i in range(4):
                     n = await self._read_group(None if i == 0 else self.cfg.message_timeout_s)
                     if n == 0:  # inter-group timeout: user stalled out
                         raise InputCancelled()
@@ -266,24 +273,6 @@ class ChessCoach:
                 return encoding.PROMO_COUNTS[n]
             await self._signal("error")
 
-    async def _disambiguate(self, cands: list[encoding.Candidate]) -> encoding.Candidate | None:
-        """Buzz each candidate's origin square; 1 short = accept, 2 = next (wraps).
-        Returns None if the user cancels (long / repeated garbage)."""
-        self.state = "disambiguate"
-        await self._signal("ambiguity")
-        i = 0
-        for _ in range(len(cands) * 3):  # bounded patience
-            cand = cands[i % len(cands)]
-            await self._groups_out(cand.origin_groups())
-            n = await self._read_choice()
-            if n == 1:
-                return cand
-            if n == 2:
-                i += 1
-                continue
-            return None
-        return None
-
     async def input_opponent_move(self) -> chess.Move:
         while True:
             self.state = "wait_opponent_input"
@@ -302,17 +291,12 @@ class ChessCoach:
                 await self._signal("error")
                 continue
 
-            if len(cands) > 1:
-                chosen = await self._disambiguate(cands)
-                if chosen is None:
-                    continue
-            else:
-                chosen = cands[0]
-                # echo the decoded message back for confirmation
-                await self._groups_out(groups)
-                self.state = "confirm_move"
-                if not await self._confirm():
-                    continue
+            chosen = cands[0]
+            # echo the decoded message back for confirmation
+            await self._groups_out(groups)
+            self.state = "confirm_move"
+            if not await self._confirm():
+                continue
 
             promotion = None
             if chosen.needs_promotion:

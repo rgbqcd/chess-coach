@@ -62,8 +62,8 @@ def groups(*counts):
 CFG = CoachConfig(skip_calibration=True)
 
 
-def make_coach(events, ucis=(), board=None, user_color=None):
-    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(ucis), CFG)
+def make_coach(events, ucis=(), board=None, user_color=None, cfg=CFG):
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(ucis), cfg)
     if board is not None:
         coach.board = board
     if user_color is not None:
@@ -74,13 +74,13 @@ def make_coach(events, ucis=(), board=None, user_color=None):
 async def test_full_game_fools_mate():
     # user plays black; engine finds the fool's mate. Script:
     # color: 2 shorts (black), echo confirm 1;
-    # white move f2f3 (pawn,f,3), confirm; engine e7e5, ack;
-    # white g2g4 (pawn,g,4), confirm; engine d8h4#, ack.
+    # white f2f3 (6-2-6-3), confirm; engine e7e5, ack;
+    # white g2g4 (7-2-7-4), confirm; engine d8h4#, ack.
     events = (
         groups(2) + groups(1)                     # color select + confirm
-        + groups(1, 6, 3) + groups(1)             # f3 + confirm
+        + groups(6, 2, 6, 3) + groups(1)          # f3 + confirm
         + groups(1)                               # ack e5 recommendation
-        + groups(1, 7, 4) + groups(1)             # g4 + confirm
+        + groups(7, 2, 7, 4) + groups(1)          # g4 + confirm
         + groups(1)                               # ack Qh4# recommendation
     )
     coach = make_coach(events, ucis=["e7e5", "d8h4"])
@@ -92,13 +92,13 @@ async def test_full_game_fools_mate():
     played = coach.output.played
     assert ("signal", "win") in played
     # the mating move was output with its check signal
-    assert ("groups", [5, 8, 4]) in played
+    assert ("groups", [4, 8, 8, 4]) in played
     assert ("signal", "check") in played
 
 
 async def test_input_rejects_illegal_then_accepts():
-    # queen to d5 from the start position is illegal -> error, then e4 accepted
-    events = groups(5, 4, 5) + groups(1, 5, 4) + groups(1)
+    # e2e5 is illegal from the start position -> error, then e2e4 accepted
+    events = groups(5, 2, 5, 5) + groups(5, 2, 5, 4) + groups(1)
     coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("e2e4")
@@ -106,30 +106,35 @@ async def test_input_rejects_illegal_then_accepts():
 
 
 async def test_input_reject_echo_retry():
-    # user enters e4, rejects the echo (2 shorts), re-enters d4, confirms
-    events = groups(1, 5, 4) + groups(2) + groups(1, 4, 4) + groups(1)
+    # user enters e2e4, rejects the echo (2 shorts), re-enters d2d4, confirms
+    events = groups(5, 2, 5, 4) + groups(2) + groups(4, 2, 4, 4) + groups(1)
     coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("d2d4")
 
 
-async def test_disambiguation_picks_second_candidate():
-    # knights b1 and f3 both reach the empty d2 square; user skips b1, accepts f3
+async def test_from_square_distinguishes_twin_knights():
+    # knights on b1 and f3 both reach d2; the from-square makes it exact
     board = chess.Board("rnbqkbnr/pppppppp/8/8/8/5N2/PPP1PPPP/RNBQKB1R w KQkq - 0 1")
-    events = groups(2, 4, 2) + groups(2) + groups(1)
+    events = groups(6, 3, 4, 2) + groups(1)  # f3d2 + confirm
     coach = make_coach(events, board=board, user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("f3d2")
-    played = coach.output.played
-    assert ("signal", "ambiguity") in played
-    assert ("groups", [2, 1]) in played  # b1 offered first
-    assert ("groups", [6, 3]) in played  # then f3
+    assert ("groups", [6, 3, 4, 2]) in coach.output.played  # echo, no menu
+
+
+async def test_castling_input():
+    board = chess.Board("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1")
+    events = groups(5, 1, 7, 1) + groups(1)  # e1g1 = O-O + confirm
+    coach = make_coach(events, board=board, user_color=chess.BLACK)
+    move = await coach.input_opponent_move()
+    assert board.is_castling(move)
 
 
 async def test_promotion_input():
     board = chess.Board("8/P7/8/8/8/8/8/k1K5 w - - 0 1")
-    # pawn a8 + confirm, then promotion answer: 2 shorts = knight
-    events = groups(1, 1, 8) + groups(1) + groups(2)
+    # a7a8 + confirm, then promotion answer: 2 shorts = knight
+    events = groups(1, 7, 1, 8) + groups(1) + groups(2)
     coach = make_coach(events, board=board, user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("a7a8n")
@@ -137,8 +142,8 @@ async def test_promotion_input():
 
 
 async def test_long_squeeze_cancels_message():
-    # start entering a move, cancel with a long squeeze, then enter e4
-    events = ["short", "short", "long"] + groups(1, 5, 4) + groups(1)
+    # start entering a move, cancel with a long squeeze, then enter e2e4
+    events = ["short", "short", "long"] + groups(5, 2, 5, 4) + groups(1)
     coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("e2e4")
@@ -148,7 +153,7 @@ async def test_long_squeeze_cancels_message():
 async def test_output_replay_on_long_squeeze():
     coach = make_coach(["long"] + groups(1), board=chess.Board(), user_color=chess.WHITE)
     await coach.output_user_move(chess.Move.from_uci("e2e4"))
-    plays = [p for p in coach.output.played if p == ("groups", [1, 5, 4])]
+    plays = [p for p in coach.output.played if p == ("groups", [5, 2, 5, 4])]
     assert len(plays) == 2  # replayed once
 
 
@@ -159,15 +164,15 @@ async def test_move_bypass():
 
 
 async def test_activity_log_and_snapshot():
-    events = groups(1, 5, 4) + groups(1)
+    events = groups(5, 2, 5, 4) + groups(1)
     coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK)
     move = await coach.input_opponent_move()
     coach.board.push(move)
 
     kinds = [(e["kind"], e["detail"]) for e in coach.log]
-    assert ("squeeze_group", "1") in kinds
     assert ("squeeze_group", "5") in kinds
-    assert ("buzz_groups", "1-5-4") in kinds  # the echo
+    assert ("squeeze_group", "2") in kinds
+    assert ("buzz_groups", "5-2-5-4") in kinds  # the echo
     assert ("decoded", "opponent: e4") in kinds
     assert all({"seq", "t", "kind", "detail"} <= set(e) for e in coach.log)
 
@@ -183,9 +188,9 @@ async def test_practice_fail_on_confirmed_wrong_move():
     # Nf3 (legal but wrong) and CONFIRMS it -> practice fail, session ends.
     cfg = CoachConfig(skip_calibration=True, practice=True, initial_color=chess.BLACK)
     events = (
-        groups(1, 5, 4) + groups(1)   # enter e4 + confirm (correct)
-        + groups(1)                   # ack the e5 recommendation
-        + groups(2, 6, 3) + groups(1) # enter Nf3 + confirm (wrong!)
+        groups(5, 2, 5, 4) + groups(1)   # enter e2e4 + confirm (correct)
+        + groups(1)                      # ack the e5 recommendation
+        + groups(7, 1, 6, 3) + groups(1) # enter g1f3 + confirm (wrong!)
     )
     coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(["e2e4", "e7e5", "d2d4"]), cfg)
     result = await coach.run_session()
@@ -203,11 +208,10 @@ async def test_practice_rejected_echo_is_not_a_fail():
     # user enters the wrong move but REJECTS the echo, then enters the right one
     cfg = CoachConfig(skip_calibration=True, practice=True, initial_color=chess.BLACK)
     events = (
-        groups(2, 6, 3) + groups(2)   # wrong Nf3, reject echo
-        + groups(1, 5, 4) + groups(1) # correct e4, confirm
+        groups(7, 1, 6, 3) + groups(2)   # wrong g1f3, reject echo
+        + groups(5, 2, 5, 4) + groups(1) # correct e2e4, confirm
     )
     coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(["e2e4"]), cfg)
-    # run just the opponent-entry part of the loop by exhausting the script after it
     task = __import__("asyncio").ensure_future(coach.run_session())
     try:
         await task

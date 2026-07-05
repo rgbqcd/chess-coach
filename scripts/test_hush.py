@@ -3,7 +3,7 @@
 
 Usage: uv run python scripts/test_hush.py [--url ws://127.0.0.1:12345] [--match Hush]
 
-Buzzes SOS in morse, then the count groups 2-6-3 ("knight to f3"), then each
+Buzzes SOS in morse, then the count groups 7-1-6-3 ("g1 to f3"), then each
 protocol signal. Requires Intiface Central running with the device paired.
 """
 
@@ -75,11 +75,11 @@ async def main():
     await play(device, patterns.from_text("SOS", timing))
     await asyncio.sleep(1.5)
 
-    print("count groups 2-6-3 (knight to f3) ...")
-    await play(device, patterns.count_groups([2, 6, 3], timing))
+    print("count groups 7-1-6-3 (g1 to f3) ...")
+    await play(device, patterns.count_groups([7, 1, 6, 3], timing))
     await asyncio.sleep(1.5)
 
-    for name in ("ready", "attention", "ack", "error", "ambiguity", "check"):
+    for name in ("ready", "attention", "ack", "error", "promotion", "check"):
         print(f"signal: {name}")
         await play(device, patterns.signal(name, timing))
         await asyncio.sleep(1.5)

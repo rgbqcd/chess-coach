@@ -6,7 +6,7 @@ Usage: uv run python scripts/play_cli.py [--stockfish /opt/homebrew/bin/stockfis
 
 You type squeeze groups instead of squeezing, and buzzes are printed instead
 of vibrating. Input syntax at the prompt:
-    2 6 3      three count groups (knight, f-file, rank 3)
+    7 1 6 3    four count groups (from g1 to f3)
     1          a single group (confirm=1 / reject=2, menu answers)
     l          a long squeeze (cancel / replay)
     m e2e4     debug move bypass
@@ -41,7 +41,7 @@ class KeyboardInput:
                 try:
                     counts = [int(tok) for tok in line.split()]
                 except ValueError:
-                    print("  ? use counts like '2 6 3', 'l' for long, or 'm e2e4'")
+                    print("  ? use counts like '5 2 5 4', 'l' for long, or 'm e2e4'")
                     continue
                 for n in counts:
                     self.buffer += ["short"] * n + [None]  # None = pause closes group
@@ -57,7 +57,8 @@ class KeyboardInput:
         self.buffer.clear()
 
 
-PIECES = {1: "pawn", 2: "knight", 3: "bishop", 4: "rook", 5: "queen", 6: "king"}
+def _square(file_count, rank_count):
+    return "abcdefgh"[file_count - 1] + str(rank_count)
 
 
 class PrintOutput:
@@ -66,15 +67,15 @@ class PrintOutput:
 
     async def play_groups(self, counts):
         hint = ""
-        if len(counts) == 3 and counts[0] in PIECES and 1 <= counts[1] <= 8 and 1 <= counts[2] <= 8:
-            hint = f"  ({PIECES[counts[0]]} -> {'abcdefgh'[counts[1] - 1]}{counts[2]})"
+        if len(counts) == 4 and all(1 <= c <= 8 for c in counts):
+            hint = f"  ({_square(counts[0], counts[1])} -> {_square(counts[2], counts[3])})"
         print(f"  BZZZ groups: {'-'.join(map(str, counts))}{hint}")
 
 
 class VerboseCoach(ChessCoach):
     async def input_opponent_move(self):
         print(f"\n{self.board}\n")
-        print("enter the OPPONENT's move as: piece file rank (e.g. '1 5 4' = pawn e4)")
+        print("enter the OPPONENT's move as: from-file from-rank to-file to-rank (e.g. '5 2 5 4' = e2e4)")
         move = await super().input_opponent_move()
         print(f"  decoded: {self.board.san(move)}")
         return move

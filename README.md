@@ -89,31 +89,32 @@ replay of the last recommendation).
 
 **Buzzes (machine → you).** Dots (200 ms) and dashes (600 ms). Count groups
 are all dots — you just count them. Anything containing a dash is a **signal**
-(attention, error, ack, ambiguity, promotion, check, win/loss/draw), so a
+(attention, error, ack, promotion, check, win/loss/draw), so a
 status message can never be mistaken for a number.
 
-**Moves are three count groups** in both directions:
+**Moves are four count groups** in both directions — the from-square then
+the to-square, each as file·rank, exactly the order you read the squares:
 
 ```
-piece · destination file · destination rank
+from-file · from-rank · to-file · to-rank
 
-piece: 1=pawn 2=knight 3=bishop 4=rook 5=queen 6=king
-file:  1–8 = a–h        rank: 1–8
+file: 1–8 = a–h        rank: 1–8
 ```
 
-So knight to f3 is `2 · 6 · 3`; pawn to e4 is `1 · 5 · 4`. Castling is the
-king moving two squares (`6 · 7 · 1` = O-O for white); en passant is just the
-pawn to its destination.
+So e2e4 is `5 · 2 · 5 · 4`; the knight g1→f3 is `7 · 1 · 6 · 3`. A from/to
+pair identifies exactly one move, so nothing is ever ambiguous. Castling is
+the king moving two squares (`5 · 1 · 7 · 1` = O-O for white); en passant is
+just the capturing pawn's from/to.
 
 **Session flow:** ready signal → calibration (relax 3 s, squeeze 3 s — sets
 your personal pressure thresholds) → color select (1 short = white, 2 =
-black) → game. Every move you enter is echoed back for a 1-yes/2-no
-confirmation. If piece+destination is ambiguous (two knights, multiple pawn
-captures), the machine buzzes each candidate's origin square and you pick with
-1/2. Pawns reaching the last rank trigger a promotion query (1=Q 2=N 3=R 4=B).
-When the machine recommends a move, it leads with the attention signal, buzzes
-the groups, appends origin/promotion groups only when needed, adds the check
-signal if the move gives check, and waits for your 1-short "I played it".
+black) → game. Every move you enter is validated against the position (no
+legal match → error buzz, try again) and echoed back for a 1-yes/2-no
+confirmation. Pawns reaching the last rank trigger a promotion query
+(1=Q 2=N 3=R 4=B). When the machine recommends a move, it leads with the
+attention signal, buzzes the four groups, appends a promotion group when
+needed, adds the check signal if the move gives check, and waits for your
+1-short "I played it".
 
 ## The practice dashboard
 
@@ -127,16 +128,16 @@ uv run python scripts/dashboard.py   # then open http://localhost:8765
 It connects to the running viam-server machine and live-updates (~3 Hz):
 
 - **Hint banner** — what the machine expects *right now*, in plain language
-  ("SQUEEZE HARD — capturing peak", "enter the opponent's move: piece · file
-  · rank", "confirm the move echo: 1 = yes, 2 = no").
+  ("SQUEEZE HARD — capturing peak", "enter the opponent's move: from-square
+  then to-square", "confirm the move echo: 1 = yes, 2 = no").
 - **Board** — rendered from the live game state with the last move
   highlighted, plus SAN move history, your color, and whose turn it is.
 - **Squeeze sensor panel** — live pressure value and a rolling 30 s trace with
   your calibrated on/off thresholds drawn in, so you can see exactly why a
   squeeze did or didn't register; squeeze indicator and battery.
 - **Activity feed** — every buzz sent and squeeze decoded, timestamped:
-  `squeeze 1-5-4 → buzz echo 1-5-4 → squeeze 1 → decoded: opponent e4 →
-  engine: recommend e5 → buzz attention → buzz 1-5-5`.
+  `squeeze 5-2-5-4 → buzz echo 5-2-5-4 → squeeze 1 → decoded: opponent e4 →
+  engine: recommend e5 → buzz attention → buzz 5-7-5-5`.
 
 Append `?theme=dark` or `?theme=light` to force a theme. The page is a single
 self-contained HTML file served by a zero-dependency Python bridge
@@ -263,22 +264,19 @@ every step of this exchange if you get lost.
 
 Say you chose white. The first thing you'll feel is the **attention signal**
 (`— —`): your own recommendation follows. Count the groups — say
-`· | · · · · · | · · · ·` — that's 1·5·4: **pawn to e4**. In a real game you'd
-now play it on the physical board; here, just squeeze **1 short** to ack. The
-move appears on the dashboard board.
+`· · · · · | · · | · · · · · | · · · ·` — that's 5·2·5·4: **e2 to e4**. In a
+real game you'd now play it on the physical board; here, just squeeze
+**1 short** to ack. The move appears on the dashboard board.
 
 Now the AI opponent moves. The banner shows it in orange — *"opponent played
 e5 — squeeze it in"* — with the from/to squares outlined on the board. Encode
-it yourself before peeking at the hint: pawn = **1**, e-file = **5**, rank 5 =
-**5**. Squeeze `1 · 5 · 5` with ~1.5 s pauses between groups. The Hush echoes
-your three groups back; if they match what you meant, confirm with **1**.
+it yourself before peeking at the hint: from e7 = **5·7**, to e5 = **5·5**.
+Squeeze `5 · 7 · 5 · 5` with ~1.5 s pauses between groups. The Hush echoes
+your four groups back; if they match what you meant, confirm with **1**.
 
 That's the whole loop: feel your move, ack it; see the opponent's move,
 encode it, confirm it. Along the way you'll meet the special exchanges:
 
-- **Ambiguity** (`— — —` after your input): two of the opponent's pieces could
-  make that move. The Hush buzzes the origin square of one candidate
-  (file·rank); squeeze **1** if that's the one, **2** to hear the next.
 - **Promotion** (`— · —`): answer 1=Q 2=N 3=R 4=B.
 - **Check** (3 rapid strong dots): appended when a received move gives check.
 - Made a mess mid-entry? **One long squeeze** cancels the message (error buzz
@@ -373,6 +371,6 @@ uv run pytest
 ```
 
 Covers squeeze detection (drift, debounce, hysteresis, short/long boundaries),
-the move codec (knight ambiguity, pawn-capture ambiguity, promotion, castling,
-en passant), and the full game loop (fool's mate, disambiguation exchange,
-cancel/replay, promotion query, activity log).
+the move codec (from/to decoding, promotion collapse, castling, en passant,
+illegal/out-of-range input), and the full game loop (fool's mate, echo
+reject/retry, cancel/replay, promotion query, practice mode, activity log).

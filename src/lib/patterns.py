@@ -104,7 +104,6 @@ def signal(name: str, timing: Timing) -> list[Step]:
         "attention": from_morse("--", t),
         "ack": from_morse("..", t),
         "error": [(lo, 1200)],  # one long low buzz
-        "ambiguity": from_morse("---", t),
         "promotion": from_morse("-.-", t),
         "check": _join([[(hi, 100)] for _ in range(3)], (0.0, 100)),  # 3 rapid high dots
         "calibrate_relax": from_morse("...", t),
@@ -117,6 +116,6 @@ def signal(name: str, timing: Timing) -> list[Step]:
 
 
 SIGNALS = (
-    "ready", "attention", "ack", "error", "ambiguity", "promotion", "check",
+    "ready", "attention", "ack", "error", "promotion", "check",
     "calibrate_relax", "calibrate_squeeze", "win", "loss", "draw",
 )

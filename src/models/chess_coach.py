@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import shutil
+from collections import deque
 from typing import ClassVar, Mapping, Optional, Sequence, Tuple
 
 import chess
@@ -183,6 +184,7 @@ class ChessCoachService(GenericService, EasyResource):
         self.input = ViamInput(self.sensor, self.input_poll_s)
         self.input.start()
         last_color = None
+        session_log: deque = deque(maxlen=300)
         try:
             engine = await StockfishEngine.create(self.stockfish_path, self.engine_skill, self.engine_time_s)
             self.engine = engine
@@ -190,7 +192,7 @@ class ChessCoachService(GenericService, EasyResource):
                 cfg = dataclasses.replace(
                     self.coach_cfg, practice=self.practice_mode, initial_color=last_color
                 )
-                self.coach = ChessCoach(self.input, ViamOutput(self.buzzer), engine, cfg)
+                self.coach = ChessCoach(self.input, ViamOutput(self.buzzer), engine, cfg, log=session_log)
                 LOGGER.info("chess session starting (practice=%s)", self.practice_mode)
                 result = await self.coach.run_session()
                 LOGGER.info("chess session finished: %s (%s)", self.coach.board.result(), result)

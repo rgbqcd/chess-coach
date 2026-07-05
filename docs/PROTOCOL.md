@@ -31,7 +31,6 @@ All timings and intensities are Viam config attributes.
 | ack | `..` | understood / calibration OK |
 | error | one long low buzz | invalid input, try again |
 | attention | `--` | recommended move follows |
-| ambiguity | `---` | several origins match; menu follows |
 | promotion | `-.-` (after a move) | promotion piece query |
 | check | 3 rapid high dots | the conveyed move gives check |
 | win | `---` high intensity | you won |
@@ -40,10 +39,9 @@ All timings and intensities are Viam config attributes.
 
 ## Count encodings
 
-- **piece**: 1=pawn 2=knight 3=bishop 4=rook 5=queen 6=king
 - **file**: 1–8 = a–h · **rank**: 1–8
 - **promotion answer**: 1=queen 2=knight 3=rook 4=bishop
-- **yes/no**: 1 short = yes/confirm/this-one · 2 shorts = no/reject/next
+- **yes/no**: 1 short = yes/confirm · 2 shorts = no/reject
 
 ## Session flow
 
@@ -55,32 +53,34 @@ All timings and intensities are Viam config attributes.
 
 ## Move messages
 
-A move is **three count groups**: `piece · destination-file · destination-rank`.
-Example: knight to f3 = `2 · 6 · 3`. Castling is entered/output as the king
-moving two squares (e.g. `6 · 7 · 1` = O-O for white). En passant is just the
-pawn to its destination.
+A move is **four count groups**: the from-square then the to-square, each as
+`file · rank` (the same order you read the squares: e2e4 = `5 · 2 · 5 · 4`).
+The message completes on the fourth group. A from/to pair identifies exactly
+one move, so there is never any ambiguity to resolve.
+
+- **Castling** is the king's two-square move: `5·1·7·1` = e1g1 = O-O for
+  white; `5·8·3·8` = e8c8 = O-O-O for black.
+- **En passant** is the capturing pawn's from/to (e.g. `5·5·4·6` = e5xd6 ep).
+- **Promotion**: all promotion pieces share the same from/to, so the move is
+  entered/output normally and the piece is resolved by a follow-up query.
 
 ### Opponent move (player → machine)
 
-1. Squeeze the three groups.
-2. The machine decodes against the legal moves of the current position:
-   - **no match** → error signal, start over
-   - **one match** → the machine echoes the three groups; confirm 1 / reject 2
-   - **several matches** (two knights, multiple pawn captures…) → ambiguity
-     signal, then the machine buzzes each candidate's **origin square**
-     (file group · rank group) one at a time: 1 = that one, 2 = next
-     (wraps around), long = cancel
+1. Squeeze the four groups.
+2. The machine validates against the legal moves of the current position:
+   - **no legal match** (empty from-square, illegal destination, out-of-range
+     count…) → error signal, start over
+   - **exactly one match** (always, when legal) → the machine echoes the four
+     groups back; confirm 1 / reject 2
 3. If the move is a pawn reaching the last rank: promotion signal, answer with
    one group (1=Q 2=N 3=R 4=B).
 
 ### Recommended move (machine → player)
 
-1. Attention signal, then the three count groups.
-2. If piece+destination is ambiguous on the current board, the **origin**
-   file/rank groups are appended.
-3. If a promotion: promotion signal + one count group for the piece.
-4. If the move gives check: check signal (a nice confidence check).
-5. Play the move on the real board, then squeeze 1 short to acknowledge —
+1. Attention signal, then the four count groups (from-square, to-square).
+2. If a promotion: promotion signal + one count group for the piece.
+3. If the move gives check: check signal (a nice confidence check).
+4. Play the move on the real board, then squeeze 1 short to acknowledge —
    or one long squeeze to have the whole thing replayed.
 
 ## Game end
@@ -92,5 +92,4 @@ goes idle. Reset via the chess-coach service's `reset` do_command.
 
 - Opening-book shortcuts: a long squeeze *starting* a message switches to book
   mode with short Huffman codes for common openings.
-- Morse output mode (`output_encoding: "morse"`): piece by first letter
-  (P/N/B/R/Q/K), squares as morse characters.
+- Morse output mode (`output_encoding: "morse"`): squares as morse characters.
