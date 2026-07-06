@@ -18,8 +18,8 @@ class Timing:
     dash_ms: int = 600
     gap_ms: int = 250  # between buzzes within a group / morse letter
     group_gap_ms: int = 900  # between count groups
-    intensity: float = 0.7
-    error_intensity: float = 0.4
+    intensity: float = 0.05  # Lovense has ~20 steps; 0.05 is the lowest
+    error_intensity: float = 0.05
 
 
 # Morse table for the (stretch) morse-letter output mode and for signals.

@@ -1,13 +1,16 @@
 #!/usr/bin/env python
-"""Live debugging dashboard for the haptic chess robot.
+"""Standalone dashboard bridge for a (possibly remote) haptic chess robot.
 
-Bridges the viam machine to a local web page: an asyncio task polls the
-chess-coach state, the squeeze sensor readings, and the buzzer status, and a
-tiny stdlib HTTP server serves web/index.html plus the merged snapshot at
-/state.json. No dependencies beyond what the module already uses.
+Note: the module now serves this same page itself (dashboard service model),
+so for local use you usually don't need this script. It remains useful for
+pointing the page at a REMOTE machine through Viam's cloud connectivity:
 
-Usage: uv run python scripts/dashboard.py [--robot localhost:8080] [--port 8765]
-       [--coach coach] [--sensor kgoal] [--buzzer hush]
+  uv run python scripts/dashboard.py --robot <machine>.viam.cloud \
+      --api-key-id <id> --api-key <key> --read-only
+
+Local use: uv run python scripts/dashboard.py [--robot localhost:8080]
+       [--port 8765] [--coach coach] [--sensor kgoal] [--buzzer hush]
+--read-only serves the page without any control buttons (spectator mode).
 """
 
 import argparse
@@ -35,8 +38,8 @@ POLL_S = 0.35
 # shared between the poller (asyncio) and the HTTP server (threads);
 # always replaced atomically, never mutated in place
 latest: dict = {"connected": False, "error": "connecting..."}
-# set by the poller so HTTP threads can forward commands to the coach
-runtime: dict = {"loop": None, "coach": None}
+# set by the poller so HTTP threads can forward commands to resources
+runtime: dict = {"loop": None, "coach": None, "sensor": None, "buzzer": None, "read_only": False}
 
 
 def san_history(ucis: list) -> list:
@@ -59,13 +62,18 @@ async def poll(args) -> None:
     while True:
         try:
             if robot is None:
-                opts = RobotClient.Options(dial_options=DialOptions(insecure=True, disable_webrtc=True))
+                if args.api_key:
+                    opts = RobotClient.Options.with_api_key(args.api_key, args.api_key_id)
+                else:
+                    opts = RobotClient.Options(dial_options=DialOptions(insecure=True, disable_webrtc=True))
                 robot = await RobotClient.at_address(args.robot, opts)
                 coach = GenericService.from_robot(robot, args.coach)
                 sensor = Sensor.from_robot(robot, args.sensor)
                 buzzer = GenericComponent.from_robot(robot, args.buzzer)
                 runtime["loop"] = asyncio.get_running_loop()
                 runtime["coach"] = coach
+                runtime["sensor"] = sensor
+                runtime["buzzer"] = buzzer
                 print(f"connected to {args.robot}")
 
             state, readings, buzz = {}, {}, {}
@@ -85,6 +93,7 @@ async def poll(args) -> None:
             state["move_history_san"] = san_history(state.get("move_history", []))
             latest = {
                 "connected": True,
+                "read_only": runtime["read_only"],
                 "t": time.time(),
                 "coach": state,
                 "sensor": readings,
@@ -127,13 +136,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
-        loop, coach = runtime["loop"], runtime["coach"]
+        if runtime["read_only"]:
+            body = json.dumps({"error": "dashboard is read-only"}).encode()
+            self.send_response(403)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        loop = runtime["loop"]
         try:
             length = int(self.headers.get("Content-Length", 0))
             cmd = json.loads(self.rfile.read(length) or b"{}")
-            if loop is None or coach is None:
-                raise RuntimeError("robot not connected")
-            future = asyncio.run_coroutine_threadsafe(coach.do_command(cmd), loop)
+            target = runtime.get(str(cmd.pop("target", "coach")))
+            if loop is None or target is None:
+                raise RuntimeError("robot not connected (or unknown target)")
+            future = asyncio.run_coroutine_threadsafe(target.do_command(cmd), loop)
             body = json.dumps(dict(future.result(timeout=10))).encode()
             status = 200
         except Exception as err:
@@ -156,7 +174,11 @@ def main():
     parser.add_argument("--coach", default="coach")
     parser.add_argument("--sensor", default="kgoal")
     parser.add_argument("--buzzer", default="hush")
+    parser.add_argument("--api-key", default="", help="Viam API key for remote machines")
+    parser.add_argument("--api-key-id", default="", help="Viam API key id")
+    parser.add_argument("--read-only", action="store_true", help="spectator mode: no control buttons")
     args = parser.parse_args()
+    runtime["read_only"] = args.read_only
 
     server = ThreadingHTTPServer(("127.0.0.1", args.port), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()

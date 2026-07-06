@@ -73,6 +73,7 @@ still show up in your robot config like any respectable sensor and actuator:
 | `rgbqcd:chess-playing:chess-coach` | `rdk:service:generic` | game loop: decode squeezes, ask Stockfish, buzz the reply |
 | `rgbqcd:chess-playing:fake-kgoal` | `rdk:component:sensor` | hardware-free input stand-in |
 | `rgbqcd:chess-playing:fake-buzzer` | `rdk:component:generic` | hardware-free output stand-in (logs buzzes) |
+| `rgbqcd:chess-playing:dashboard` | `rdk:service:generic` | serves the setup/practice web dashboard from inside the module |
 
 The chess brain is [Stockfish](https://stockfishchess.org) over UCI via
 [python-chess](https://python-chess.readthedocs.io).
@@ -118,13 +119,18 @@ needed, adds the check signal if the move gives check, and waits for your
 ## The practice dashboard
 
 The core experience is blind — but nobody is born fluent in kegel-to-chess
-encoding. For practice and debugging there's a live web view:
+encoding. For practice, setup, and debugging there's a live web view **served
+by the module itself**: whenever viam-server is running (with the `dashboard`
+service in the config), open **http://localhost:8765** — no extra process.
 
-```sh
-uv run python scripts/dashboard.py   # then open http://localhost:8765
-```
-
-It connects to the running viam-server machine and live-updates (~3 Hz):
+The page opens on a **setup checklist**: viam-server/module, Intiface
+Central, Hush (with battery), kGoal (battery + live pressure), Stockfish, and
+the game session — each row green, or red with the exact fix ("open Intiface
+Central and press the play button", "power the kGoal on; make sure Intiface
+isn't holding 'Boost'"). Action buttons let a helper drive setup while the
+player stays hands-free: **test buzz**, **rescan hush**, **start/restart
+game**, plus the practice toggle. When every row is green it collapses to
+"all systems go" and the game view below is live (~3 Hz):
 
 - **Hint banner** — what the machine expects *right now*, in plain language
   ("SQUEEZE HARD — capturing peak", "enter the opponent's move: from-square
@@ -139,8 +145,9 @@ It connects to the running viam-server machine and live-updates (~3 Hz):
   engine: recommend e5 → buzz attention → buzz 5-7-5-5`.
 
 Append `?theme=dark` or `?theme=light` to force a theme. The page is a single
-self-contained HTML file served by a zero-dependency Python bridge
-(`scripts/dashboard.py`) that polls the robot's gRPC API.
+self-contained HTML file (`web/index.html`). `scripts/dashboard.py` remains as
+a standalone bridge for pointing the same page at a **remote** machine (see
+Remote monitoring below).
 
 ### AI-opponent practice mode
 
@@ -153,6 +160,33 @@ echoes and undecodable input just retry as usual — but **confirming a wrong
 move fails the game**: you get the loss buzz, the board resets, and a new game
 auto-starts (same color, no re-calibration). The dashboard tracks your
 games/fails tally, and a **new game** button restarts on demand.
+
+## Remote monitoring
+
+The player is hands-free by design — but a third person with access to the
+machine can watch and drive setup from anywhere:
+
+- **On the same computer / LAN**: the module-served dashboard at
+  `http://localhost:8765` is all you need (set the dashboard service's
+  `bind` to `"0.0.0.0"` to allow LAN viewers — note there is no auth, so
+  only do this on a network you trust).
+- **Over the internet, with real auth**: register the machine with the
+  [Viam app](https://app.viam.com) (it gives you a cloud config for
+  viam-server; [viam-agent](https://docs.viam.com/manage/reference/viam-agent/)
+  can keep it running as a service so nobody ever opens a terminal). Viam
+  handles NAT traversal and API keys. The remote helper then runs the bridge
+  on *their* machine, pointed at yours:
+
+  ```sh
+  uv run python scripts/dashboard.py \
+      --robot <machine-address>.viam.cloud \
+      --api-key-id <key-id> --api-key <key> \
+      --read-only        # spectator mode: page renders, buttons hidden/blocked
+  ```
+
+  Drop `--read-only` to let them use the setup buttons (test buzz, rescan,
+  start game, practice toggle) on your behalf. The Viam app itself also shows
+  machine status, logs, and lets them call any do_command directly.
 
 ## Setup
 
@@ -226,13 +260,18 @@ cp viam.practice.json viam.practice.local.json
 # edit viam.practice.local.json: set executable_path to <this repo>/run.sh
 ```
 
-Then three terminals (or two and some `&`):
+Then one command:
 
 ```sh
-viam-server -config viam.practice.local.json  # the robot, practice mode on
-uv run python scripts/dashboard.py            # the bridge
-open http://localhost:8765                    # the dashboard
+scripts/up.sh viam.practice.local.json   # Intiface + viam-server + browser
 ```
+
+(or by hand: `viam-server -config viam.practice.local.json` and open
+http://localhost:8765 — the module serves the dashboard itself). The page
+opens on the **setup checklist**: work down the rows until everything is
+green — it tells you exactly what's missing at each step, and the **test
+buzz** / **rescan hush** buttons help confirm the Hush without touching the
+protocol.
 
 Wait for all four chips in the dashboard header to go green: **robot
 connected · session running · kGoal connected · Hush**. The kGoal takes a few
@@ -306,9 +345,15 @@ uv run python scripts/play_cli.py                # full game at the keyboard, no
 ## Run the robot
 
 ```sh
-viam-server -config viam.json        # real devices
+scripts/up.sh                        # one command: Intiface + viam-server + browser
+# or by hand:
+viam-server -config viam.json        # real devices (dashboard included at :8765)
 viam-server -config viam.fake.json   # hardware-free (fake models, protocol testable)
 ```
+
+`scripts/up.sh [config]` launches Intiface Central (macOS), starts viam-server
+with your `*.local.json` config (auto-detected), waits for the dashboard, and
+opens the browser. Ctrl-C stops everything.
 
 The checked-in configs are templates: copy one to `viam.local.json` (any
 `*.local.json` is gitignored) and set the module's `executable_path` to your
@@ -343,7 +388,7 @@ dependency names):
 | `scan_seconds` | `5` | scan duration when the device isn't connected yet |
 | `dot_ms` / `dash_ms` | `200` / `600` | buzz durations |
 | `gap_ms` / `group_gap_ms` | `250` / `900` | within-group / between-group silence |
-| `intensity` / `error_intensity` | `0.7` / `0.4` | vibration levels (0–1] |
+| `intensity` / `error_intensity` | `0.05` / `0.05` | vibration levels (0–1]; the Hush has ~20 steps, so 0.05 is the gentlest and useful increments are multiples of 0.05 |
 
 **chess-coach** (generic service)
 | attribute | default | |
@@ -362,6 +407,14 @@ dependency names):
 | `input_poll_ms` | `100` | how often the coach polls the sensor for events |
 | `auto_start` | `true` | start a session on boot |
 | `skip_calibration` | `false` | skip the calibration phase |
+
+**dashboard** (generic service)
+| attribute | default | |
+|---|---|---|
+| `coach` / `input_sensor` / `output_buzzer` | *(required)* | names of the resources to display |
+| `port` | `8765` | HTTP port for the web page |
+| `bind` | `127.0.0.1` | set `0.0.0.0` to allow other devices on your network |
+| `read_only` | `false` | serve the page without any control actions |
 
 ## Tests
 

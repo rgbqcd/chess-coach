@@ -55,7 +55,7 @@ async def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--url", default="ws://127.0.0.1:12345")
     parser.add_argument("--match", default="Hush")
-    parser.add_argument("--intensity", type=float, default=0.7)
+    parser.add_argument("--intensity", type=float, default=0.05)
     args = parser.parse_args()
 
     client = ButtplugClient("chess-playing-test")

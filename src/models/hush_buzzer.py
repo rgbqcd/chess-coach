@@ -42,6 +42,7 @@ class HushBuzzer(Generic, EasyResource):
         self.timing = Timing()
         self.client: Optional[ButtplugClient] = None
         self.device: Optional[ButtplugDevice] = None
+        self.battery: Optional[float] = None
         self._connect_task: Optional[asyncio.Task] = None
         self._play_task: Optional[asyncio.Task] = None
 
@@ -70,8 +71,8 @@ class HushBuzzer(Generic, EasyResource):
             dash_ms=int(attrs.get("dash_ms", 600)),
             gap_ms=int(attrs.get("gap_ms", 250)),
             group_gap_ms=int(attrs.get("group_gap_ms", 900)),
-            intensity=float(attrs.get("intensity", 0.7)),
-            error_intensity=float(attrs.get("error_intensity", 0.4)),
+            intensity=float(attrs.get("intensity", 0.05)),
+            error_intensity=float(attrs.get("error_intensity", 0.05)),
         )
         if self._connect_task is None or self._connect_task.done():
             self._connect_task = asyncio.create_task(self._connect_loop())
@@ -113,6 +114,12 @@ class HushBuzzer(Generic, EasyResource):
                     if self.device is not None:
                         LOGGER.info("using device: %s", self.device.name)
 
+                if self.device is not None and self.device.has_battery:
+                    try:
+                        self.battery = await self.device.battery()
+                    except Exception:
+                        LOGGER.debug("battery read failed", exc_info=True)
+
                 await asyncio.sleep(2 if self.device is None else 10)
             except asyncio.CancelledError:
                 raise
@@ -127,6 +134,7 @@ class HushBuzzer(Generic, EasyResource):
         if self.device is not None and device.index == self.device.index:
             LOGGER.warning("device %s removed", device.name)
             self.device = None
+            self.battery = None
 
     def _on_server_disconnect(self) -> None:
         LOGGER.warning("Intiface server disconnected")
@@ -199,10 +207,17 @@ class HushBuzzer(Generic, EasyResource):
             if self.device is not None:
                 await self.device.stop()
             return {"ok": True}
+        elif cmd == "rescan":
+            self.device = None
+            self.battery = None
+            return {"ok": True}
         elif cmd == "status":
+            server_ok = self.client is not None and self.client.connected
             return {
-                "connected": self.client is not None and self.client.connected,
+                "connected": server_ok,
+                "server_connected": server_ok,
                 "device": self.device.name if self.device else "",
+                "battery": -1.0 if self.battery is None else self.battery,
                 "playing": self._play_task is not None and not self._play_task.done(),
             }
         else:

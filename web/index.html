@@ -111,6 +111,16 @@
   #log .k::before { content: ""; width: 8px; height: 8px; border-radius: 2px; background: var(--kc, var(--muted)); }
   #log .d { color: var(--ink); }
   .err { color: var(--critical); font-size: 12px; margin-top: 6px; min-height: 1em; }
+  #setup { margin-bottom: 14px; }
+  #setup .row { display: flex; gap: 10px; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--grid); }
+  #setup .row:last-of-type { border-bottom: none; }
+  #setup .mark { flex: 0 0 18px; font-weight: 700; }
+  #setup .row.ok .mark { color: var(--good); }
+  #setup .row.bad .mark { color: var(--critical); }
+  #setup .what { flex: 0 0 190px; font-weight: 600; }
+  #setup .how { color: var(--ink-2); font-size: 13px; }
+  #setup .allgood { color: var(--good); font-weight: 650; }
+  #setup .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
 </style>
 </head>
 <body>
@@ -128,6 +138,16 @@
   <span class="state" id="state">—</span>
   <span class="hint" id="hint">connecting to dashboard…</span>
   <span class="expected" id="expected"></span>
+</div>
+
+<div class="panel" id="setup">
+  <h2>Setup</h2>
+  <div id="checklist">connecting…</div>
+  <div class="actions" id="setup-actions">
+    <button class="ctl" onclick="sendCommand({target:'buzzer', command:'buzz', ms:600})">test buzz</button>
+    <button class="ctl" onclick="sendCommand({target:'buzzer', command:'rescan'})">rescan hush</button>
+    <button class="ctl" onclick="sendCommand({command:'reset'})">start / restart game</button>
+  </div>
 </div>
 
 <div class="grid">
@@ -260,6 +280,41 @@ function renderLog(entries) {
   }).join("");
 }
 
+function renderChecklist(s) {
+  const c = s.coach || {}, sen = s.sensor || {}, buz = s.buzzer || {};
+  const battery = v => (typeof v === "number" && v >= 0) ? ` · battery ${v <= 1 ? Math.round(v * 100) : Math.round(v)}%` : "";
+  const rows = [
+    {what: "viam-server + module", ok: !!s.connected,
+     how: "start viam-server with your *.local.json config"},
+    {what: "Intiface Central", ok: buz.server_connected === true || (buz.connected === true && buz.server_connected === undefined),
+     how: "open Intiface Central and press the play button (engine on ws://127.0.0.1:12345)"},
+    {what: "Hush" + (buz.device ? `: ${buz.device}` : ""), ok: !!buz.device,
+     how: "power it on, then Devices → Start Scanning in Intiface (or 'rescan hush' below)",
+     extra: battery(buz.battery)},
+    {what: "kGoal", ok: sen.connected === true,
+     how: "power it on (squeeze to wake); make sure Intiface is NOT holding 'Boost'",
+     extra: sen.connected === true ? battery(sen.battery) + ` · pressure ${Math.round(sen.pressure || 0)}` : ""},
+    {what: "Stockfish", ok: c.engine_ok === true || c.stockfish_found === true,
+     how: "brew install stockfish, or set stockfish_path on the coach"},
+    {what: "game session", ok: c.session_running === true,
+     how: "press 'start / restart game'"},
+  ];
+  const allOk = rows.every(r => r.ok);
+  const el = $("checklist");
+  if (allOk) {
+    el.innerHTML = `<div class="allgood">✓ all systems go — ${c.practice_mode ? "practice" : "game"} on</div>`;
+  } else {
+    el.innerHTML = rows.map(r =>
+      `<div class="row ${r.ok ? "ok" : "bad"}"><span class="mark">${r.ok ? "✓" : "✗"}</span>` +
+      `<span class="what">${r.what}</span>` +
+      `<span class="how">${r.ok ? (r.extra || "") : r.how}</span></div>`).join("");
+  }
+  const hideActions = s.read_only;
+  $("setup-actions").style.display = hideActions ? "none" : "";
+  $("btn-practice").style.display = hideActions ? "none" : "";
+  $("btn-newgame").style.display = hideActions ? "none" : "";
+}
+
 function renderMoves(sans) {
   if (!sans || !sans.length) { $("moves").textContent = "—"; return; }
   let html = "";
@@ -289,6 +344,7 @@ async function tick() {
   $("hint").textContent = c.hint || (c.error ? String(c.error) : "…");
   $("err").textContent = [sen.error, buz.error].filter(Boolean).join(" · ");
 
+  renderChecklist(s);
   practiceMode = !!c.practice_mode;
   const btn = $("btn-practice");
   btn.textContent = "practice: " + (practiceMode ? "on" : "off");

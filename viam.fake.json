@@ -38,6 +38,18 @@
         "skip_calibration": true,
         "auto_start": true
       }
+    },
+    {
+      "name": "dashboard",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:dashboard",
+      "attributes": {
+        "coach": "coach",
+        "input_sensor": "kgoal",
+        "output_buzzer": "hush",
+        "port": 8765
+      }
     }
   ]
 }

@@ -23,6 +23,10 @@
     {
       "api": "rdk:component:generic",
       "model": "rgbqcd:chess-playing:fake-buzzer"
+    },
+    {
+      "api": "rdk:service:generic",
+      "model": "rgbqcd:chess-playing:dashboard"
     }
   ],
   "entrypoint": "run.sh",

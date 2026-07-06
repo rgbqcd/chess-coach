@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import os
 import shutil
 from collections import deque
 from typing import ClassVar, Mapping, Optional, Sequence, Tuple
@@ -229,6 +230,9 @@ class ChessCoachService(GenericService, EasyResource):
                 "session_running": running,
                 "practice_mode": self.practice_mode,
                 "stats": dict(self.stats),
+                "engine_ok": self.engine is not None,
+                "stockfish_path": self.stockfish_path,
+                "stockfish_found": bool(self.stockfish_path) and os.path.isfile(self.stockfish_path),
                 **snapshot,
             }
 

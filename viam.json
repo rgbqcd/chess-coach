@@ -35,8 +35,8 @@
         "dash_ms": 600,
         "gap_ms": 250,
         "group_gap_ms": 900,
-        "intensity": 0.7,
-        "error_intensity": 0.4
+        "intensity": 0.05,
+        "error_intensity": 0.05
       }
     }
   ],
@@ -55,6 +55,18 @@
         "group_gap_ms": 1500,
         "confirm_timeout_s": 30,
         "auto_start": true
+      }
+    },
+    {
+      "name": "dashboard",
+      "namespace": "rdk",
+      "type": "generic",
+      "model": "rgbqcd:chess-playing:dashboard",
+      "attributes": {
+        "coach": "coach",
+        "input_sensor": "kgoal",
+        "output_buzzer": "hush",
+        "port": 8765
       }
     }
   ]
