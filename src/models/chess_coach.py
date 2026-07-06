@@ -122,6 +122,7 @@ class ChessCoachService(GenericService, EasyResource):
         self.engine_time_s = 1.0
         self.auto_start = True
         self.practice_mode = False
+        self.board_ack = False
         self.stats = {"games": 0, "practice_fails": 0}
         self.coach_cfg = CoachConfig()
         self.coach: Optional[ChessCoach] = None
@@ -160,12 +161,14 @@ class ChessCoachService(GenericService, EasyResource):
         self.engine_time_s = float(attrs.get("engine_time_s", 1.0))
         self.auto_start = bool(attrs.get("auto_start", True))
         self.practice_mode = bool(attrs.get("practice_mode", False))
+        self.board_ack = bool(attrs.get("board_ack", False))
         self.coach_cfg = CoachConfig(
             group_gap_s=float(attrs.get("group_gap_ms", 1500)) / 1000,
             message_timeout_s=float(attrs.get("message_timeout_s", 45)),
             confirm_timeout_s=float(attrs.get("confirm_timeout_s", 30)),
             capture_seconds=float(attrs.get("capture_seconds", 3.0)),
             min_calibration_span=float(attrs.get("min_calibration_span", 40)),
+            attention_pause_s=float(attrs.get("attention_pause_ms", 1500)) / 1000,
             oracle_guesses=int(attrs.get("oracle_guesses", 5)),
             skip_calibration=bool(attrs.get("skip_calibration", False)),
         )
@@ -215,6 +218,7 @@ class ChessCoachService(GenericService, EasyResource):
                 cfg = dataclasses.replace(
                     self.coach_cfg,
                     practice=self.practice_mode,
+                    board_ack=self.board_ack,
                     initial_color=last_color,
                     skip_calibration=await self._skip_calibration(first_game, force_calibration),
                 )
@@ -253,6 +257,7 @@ class ChessCoachService(GenericService, EasyResource):
             return {
                 "session_running": running,
                 "practice_mode": self.practice_mode,
+                "board_ack_mode": self.board_ack,
                 "stats": dict(self.stats),
                 "engine_ok": self.engine is not None,
                 "stockfish_path": self.stockfish_path,
@@ -264,6 +269,17 @@ class ChessCoachService(GenericService, EasyResource):
             self.practice_mode = bool(command.get("on", True))
             self._start_session()
             return {"ok": True, "practice_mode": self.practice_mode}
+
+        if cmd == "set_board_ack":
+            self.board_ack = bool(command.get("on", True))
+            self._start_session()
+            return {"ok": True, "board_ack": self.board_ack}
+
+        if cmd == "board_ack":
+            if self.input is None:
+                return {"error": "no active session"}
+            self.input.inject(f"board:{command['uci']}")
+            return {"ok": True}
 
         if cmd in ("reset", "start"):
             self._start_session()

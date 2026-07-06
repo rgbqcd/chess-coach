@@ -84,6 +84,8 @@
   #board .sq.l { background: var(--sq-light); } #board .sq.d { background: var(--sq-dark); }
   #board .sq.hl { box-shadow: inset 0 0 0 3px var(--blue); }
   #board .sq.ex { box-shadow: inset 0 0 0 3px var(--yellow); }
+  #board .sq.sel { box-shadow: inset 0 0 0 3px var(--violet); }
+  #board.clickable .sq { cursor: pointer; }
   button.ctl {
     border: 1px solid var(--border); border-radius: 999px; background: var(--surface);
     color: var(--ink); font: 600 12px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -131,6 +133,7 @@
   <span class="chip" id="chip-sensor"><span class="dot"></span>kGoal</span>
   <span class="chip" id="chip-buzzer"><span class="dot"></span>Hush</span>
   <button class="ctl" id="btn-practice" onclick="togglePractice()">practice: —</button>
+  <button class="ctl" id="btn-blind" onclick="toggleBlind()">blind read: —</button>
   <button class="ctl" id="btn-newgame" onclick="sendCommand({command:'reset'})">new game</button>
 </header>
 
@@ -193,14 +196,34 @@ const KIND_COLOR = {
   squeeze_group: "var(--yellow)", squeeze_long: "var(--green)",
   decoded: "var(--violet)", engine: "var(--red)", move: "var(--ink)",
   practice: "var(--yellow)", practice_fail: "var(--critical)", calibrate: "var(--aqua)", oracle: "var(--violet)",
+  board_ack: "var(--good)", read_fail: "var(--critical)",
 };
 const KIND_LABEL = {
   buzz_signal: "buzz sig", buzz_groups: "buzz grp",
   squeeze_group: "squeeze", squeeze_long: "squeeze L",
   decoded: "decoded", engine: "engine", move: "move",
   practice: "practice", practice_fail: "FAIL", calibrate: "calibrate", oracle: "oracle",
+  board_ack: "read ✓", read_fail: "read ✗",
 };
 let practiceMode = null;
+let blindMode = null;
+let currentState = "";
+let selSquare = null;
+function toggleBlind() { sendCommand({command: "set_board_ack", on: !blindMode}); }
+function onBoardClick(e) {
+  const sq = e.target.closest(".sq");
+  if (!sq || !sq.dataset.sq || currentState !== "wait_board_ack") return;
+  const name = sq.dataset.sq;
+  if (!selSquare) {
+    selSquare = name;
+  } else if (selSquare === name) {
+    selSquare = null;  // deselect
+  } else {
+    sendCommand({command: "board_ack", uci: selSquare + name});
+    selSquare = null;
+  }
+}
+document.addEventListener("DOMContentLoaded", () => $("board").addEventListener("click", onBoardClick));
 async function sendCommand(cmd) {
   try {
     const r = await (await fetch("/command", {method: "POST", body: JSON.stringify(cmd)})).json();
@@ -242,7 +265,8 @@ function renderBoard(fen, lastUci, expectedUci) {
   function sq(r, f, piece, side) {
     const name = "abcdefgh"[f] + (8 - r);
     const shade = (r + f) % 2 ? "d" : "l";
-    return `<div class="sq ${shade} ${side}${ex.has(name) ? " ex" : hl.has(name) ? " hl" : ""}">${piece}</div>`;
+    const mark = name === selSquare ? " sel" : ex.has(name) ? " ex" : hl.has(name) ? " hl" : "";
+    return `<div class="sq ${shade} ${side}${mark}" data-sq="${name}">${piece}</div>`;
   }
 }
 
@@ -313,6 +337,7 @@ function renderChecklist(s) {
   const hideActions = s.read_only;
   $("setup-actions").style.display = hideActions ? "none" : "";
   $("btn-practice").style.display = hideActions ? "none" : "";
+  $("btn-blind").style.display = hideActions ? "none" : "";
   $("btn-newgame").style.display = hideActions ? "none" : "";
 }
 
@@ -347,6 +372,13 @@ async function tick() {
 
   renderChecklist(s);
   practiceMode = !!c.practice_mode;
+  blindMode = !!c.board_ack_mode;
+  if (currentState !== c.state) { selSquare = null; }
+  currentState = c.state || "";
+  $("board").className = currentState === "wait_board_ack" && !s.read_only ? "clickable" : "";
+  const blindBtn = $("btn-blind");
+  blindBtn.textContent = "blind read: " + (blindMode ? "on" : "off");
+  blindBtn.className = "ctl" + (blindMode ? " on" : "");
   const btn = $("btn-practice");
   btn.textContent = "practice: " + (practiceMode ? "on" : "off");
   btn.className = "ctl" + (practiceMode ? " on" : "");

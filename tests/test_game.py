@@ -74,7 +74,7 @@ def groups(*counts):
     return out
 
 
-CFG = CoachConfig(skip_calibration=True)
+CFG = CoachConfig(skip_calibration=True, attention_pause_s=0.0)
 
 
 def make_coach(events, ucis=(), board=None, user_color=None, cfg=CFG, ranked=()):
@@ -201,7 +201,7 @@ async def test_practice_fail_on_confirmed_wrong_move():
     # user=black (preset). AI opponent plays e4; user enters it correctly.
     # Engine recommends e5; user acks. AI opponent plays d4; user enters
     # Nf3 (legal but wrong) and CONFIRMS it -> practice fail, session ends.
-    cfg = CoachConfig(skip_calibration=True, practice=True, initial_color=chess.BLACK)
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, practice=True, initial_color=chess.BLACK)
     events = (
         groups(5, 2, 5, 4) + groups(1)   # enter e2e4 + confirm (correct)
         + groups(1)                      # ack the e5 recommendation
@@ -221,7 +221,7 @@ async def test_practice_fail_on_confirmed_wrong_move():
 
 async def test_practice_rejected_echo_is_not_a_fail():
     # user enters the wrong move but REJECTS the echo, then enters the right one
-    cfg = CoachConfig(skip_calibration=True, practice=True, initial_color=chess.BLACK)
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, practice=True, initial_color=chess.BLACK)
     events = (
         groups(7, 1, 6, 3) + groups(2)   # wrong g1f3, reject echo
         + groups(5, 2, 5, 4) + groups(1) # correct e2e4, confirm
@@ -238,7 +238,7 @@ async def test_practice_rejected_echo_is_not_a_fail():
 
 
 async def test_practice_snapshot_exposes_expected_move():
-    cfg = CoachConfig(skip_calibration=True, practice=True, initial_color=chess.BLACK)
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, practice=True, initial_color=chess.BLACK)
     coach = ChessCoach(ScriptedInput([]), ScriptedOutput(), ScriptedEngine(["e2e4"]), cfg)
     coach.expected_move = chess.Move.from_uci("e2e4")
     coach.expected_san = "e4"
@@ -359,6 +359,37 @@ async def test_oracle_guess_includes_promotion():
     move = await coach.input_opponent_move()
     assert move == chess.Move.from_uci("a7a8q")
     assert ("groups", [1]) in coach.output.played  # promotion count group buzzed
+
+
+async def test_board_ack_correct_click():
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, board_ack=True)
+    coach = make_coach(["board:e2e4"], board=chess.Board(), user_color=chess.WHITE, cfg=cfg)
+    await coach.output_user_move(chess.Move.from_uci("e2e4"))
+    kinds = [(e["kind"], e["detail"]) for e in coach.log]
+    assert ("board_ack", "read correctly: e4") in kinds
+    # the recommendation is redacted in the log but still buzzed for real
+    assert ("engine", "recommend: ●●● (read the buzz)") in kinds
+    assert ("buzz_groups", "●-●") in kinds
+    assert ("groups", [5, 2, 5, 4]) in coach.output.played
+
+
+async def test_board_ack_wrong_click_replays():
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, board_ack=True)
+    coach = make_coach(["board:d2d4", "board:e2e4"], board=chess.Board(), user_color=chess.WHITE, cfg=cfg)
+    await coach.output_user_move(chess.Move.from_uci("e2e4"))
+    assert ("signal", "error") in coach.output.played
+    assert [e for e in coach.log if e["kind"] == "read_fail" and "d2d4" in e["detail"]]
+    buzzes = [p for p in coach.output.played if p == ("groups", [5, 2, 5, 4])]
+    assert len(buzzes) == 2  # replayed after the wrong click
+
+
+async def test_board_ack_squeeze_does_not_ack():
+    cfg = CoachConfig(skip_calibration=True, attention_pause_s=0.0, board_ack=True)
+    events = ["short", None, "board:e2e4"]
+    coach = make_coach(events, board=chess.Board(), user_color=chess.WHITE, cfg=cfg)
+    await coach.output_user_move(chess.Move.from_uci("e2e4"))
+    assert ("signal", "error") in coach.output.played  # squeeze rebuffed
+    assert [e for e in coach.log if e["kind"] == "board_ack"]
 
 
 async def test_calibration_sets_span():

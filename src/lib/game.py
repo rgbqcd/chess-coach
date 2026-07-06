@@ -39,6 +39,7 @@ HINTS = {
     "engine_think": "engine thinking…",
     "output_move": "buzzing the recommended move…",
     "wait_ack": "play the move on the board, then squeeze 1 short (long = replay)",
+    "wait_board_ack": "read the buzz, then click the move on the board: from-square, then to-square (long = replay)",
     "game_over": "game over",
 }
 
@@ -86,7 +87,9 @@ class CoachConfig:
     capture_seconds: float = 3.0
     min_calibration_span: float = 40.0  # pressure counts (device range 0-2000)
     skip_calibration: bool = False
+    attention_pause_s: float = 1.5  # silence between the attention signal and the move groups
     oracle_guesses: int = 5  # ranked guesses offered before falling back to manual entry
+    board_ack: bool = False  # blind read: recommendation hidden, acked by clicking the dashboard board
     practice: bool = False  # AI opponent: user must correctly enter its moves
     initial_color: bool | None = None  # preset user color (skips color select)
 
@@ -170,8 +173,8 @@ class ChessCoach:
         self._log("buzz_signal", name)
         await self.output.play_signal(name)
 
-    async def _groups_out(self, counts: list[int]) -> None:
-        self._log("buzz_groups", "-".join(map(str, counts)))
+    async def _groups_out(self, counts: list[int], redact: bool = False) -> None:
+        self._log("buzz_groups", "●-●" if redact else "-".join(map(str, counts)))
         await self.output.play_groups(counts)
 
     def snapshot(self) -> dict:
@@ -185,6 +188,7 @@ class ChessCoach:
             "pending_candidates": [c.move().uci() for c in self.pending_candidates],
             "last_message": list(self.last_message),
             "practice": self.cfg.practice,
+            "board_ack": self.cfg.board_ack,
             "expected_move": (
                 {"uci": self.expected_move.uci(), "san": self.expected_san}
                 if self.expected_move is not None
@@ -443,25 +447,55 @@ class ChessCoach:
                 return move
             await self._signal("error")
 
+    async def _wait_ack(self, move: chess.Move) -> bool:
+        """True = move confirmed played; False = replay the recommendation.
+        Normal mode: 1 short = ack. Blind-read (board_ack) mode: only a correct
+        board click acks; squeezed counts get an error reminder."""
+        n = 0
+        while True:
+            ev = await self.input.next_event(self.cfg.group_gap_s if n else self.cfg.confirm_timeout_s)
+            if ev is None or (ev == "group_break" and n):
+                if n == 1 and not self.cfg.board_ack:
+                    return True
+                if n:
+                    await self._signal("error")
+                    n = 0
+                    if ev == "group_break":
+                        continue
+                    continue
+                return False  # timeout: replay
+            if ev == "group_break":
+                continue
+            if ev == "long":
+                self._log("squeeze_long", "long")
+                return False  # replay
+            if ev == "short":
+                n += 1
+            elif ev.startswith("board:"):
+                clicked = ev[6:]
+                if clicked == move.uci() or clicked == move.uci()[:4]:
+                    self._log("board_ack", f"read correctly: {self.board.san(move)}")
+                    return True
+                self._log("read_fail", f"clicked {clicked}")
+                await self._signal("error")
+                return False  # replay the buzz
+
     async def output_user_move(self, move: chess.Move) -> None:
-        """Buzz the recommendation; 1 short = played it, long = replay."""
+        """Buzz the recommendation, then wait for the ack (squeeze or board click)."""
         self.state = "output_move"
-        self._log("engine", f"recommend: {self.board.san(move)}")
+        hidden = self.cfg.board_ack
+        self._log("engine", "recommend: ●●● (read the buzz)" if hidden else f"recommend: {self.board.san(move)}")
         enc = encoding.encode_move(self.board, move)
         while True:
             await self._signal("attention")
+            await asyncio.sleep(self.cfg.attention_pause_s)
             for group in enc.all_groups():
-                await self._groups_out(group)
+                await self._groups_out(group, redact=hidden)
             if enc.gives_check:
                 await self._signal("check")
-            self.state = "wait_ack"
-            try:
-                n = await self._read_group(self.cfg.confirm_timeout_s)
-            except InputCancelled:
-                continue  # long squeeze: replay
-            if n == 1:
+            self.state = "wait_board_ack" if hidden else "wait_ack"
+            if await self._wait_ack(move):
                 return
-            # timeout or anything else: replay
 
     def _result_signal(self) -> str:
         outcome = self.board.outcome()

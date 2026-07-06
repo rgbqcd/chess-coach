@@ -141,7 +141,7 @@ Central and press the play button", "power the kGoal on; make sure Intiface
 isn't holding 'Boost'"). Action buttons let a helper drive setup while the
 player stays hands-free: **test buzz**, **rescan hush**, **restart game**
 (keeps your calibration), **re-calibrate** (restarts with a fresh
-relax/squeeze calibration), plus the practice toggle. When every row is green it collapses to
+relax/squeeze calibration), plus the practice and blind-read toggles. When every row is green it collapses to
 "all systems go" and the game view below is live (~3 Hz):
 
 - **Hint banner** — what the machine expects *right now*, in plain language
@@ -160,6 +160,17 @@ Append `?theme=dark` or `?theme=light` to force a theme. The page is a single
 self-contained HTML file (`web/index.html`). `scripts/dashboard.py` remains as
 a standalone bridge for pointing the same page at a **remote** machine (see
 Remote monitoring below).
+
+### Blind-read mode
+
+Reading your own recommendation off the screen defeats the purpose — so
+**blind read: on** hides it. The engine's move is redacted from the activity
+feed (`recommend: ●●●`), and instead of squeezing an ack you must **click the
+move on the dashboard board**: from-square, then to-square. Correct → the
+move plays (and is revealed in the feed); wrong → error buzz, `read ✗` in the
+feed, and the recommendation replays. A long squeeze replays it any time.
+This is the output-direction twin of practice mode: practice trains squeezing
+moves *in*, blind read trains hearing moves *out*.
 
 ### AI-opponent practice mode
 
@@ -410,7 +421,9 @@ dependency names):
 | `engine_skill` | `5` | Stockfish Skill Level 0–20 |
 | `engine_time_s` | `1.0` | think time per move |
 | `practice_mode` | `false` | AI opponent mode (see above) |
+| `board_ack` | `false` | blind-read mode: recommendation hidden, acked by clicking the board |
 | `practice_restart_delay_s` | `2` | pause before the next practice game |
+| `attention_pause_ms` | `1500` | silence between the attention signal and the move buzzes |
 | `oracle_guesses` | `5` | engine guesses offered on a long-squeeze shortcut before falling back |
 | `group_gap_ms` | `1500` | input pause that closes a count group |
 | `message_timeout_s` | `45` | max wait between groups of one message |

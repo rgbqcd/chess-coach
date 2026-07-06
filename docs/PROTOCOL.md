@@ -104,11 +104,19 @@ one short.
 
 ### Recommended move (machine → player)
 
-1. Attention signal, then the four count groups (from-square, to-square).
+1. Attention signal, a distinct pause (~1.5 s, `attention_pause_ms`), then
+   the four count groups (from-square, to-square).
 2. If a promotion: promotion signal + one count group for the piece.
 3. If the move gives check: check signal (a nice confidence check).
 4. Play the move on the real board, then squeeze 1 short to acknowledge —
    or one long squeeze to have the whole thing replayed.
+
+**Blind-read mode** (`board_ack`, toggled from the dashboard): the
+recommendation is hidden from the dashboard and squeeze-ack is disabled —
+you must prove you read the buzz by clicking the move on the dashboard board
+(from-square, then to-square). A wrong click error-buzzes and replays the
+recommendation; a correct click plays the move and reveals it in the feed.
+Long squeeze still replays on demand.
 
 ## Game end
 
