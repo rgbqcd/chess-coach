@@ -6,11 +6,12 @@ only squeezes (kGoal Boost pressure sensor) and buzzes (Lovense Hush 2).
 ## Alphabet
 
 **Input (squeezes)**
-- **short**: squeeze held < 500 ms
-- **long**: squeeze held ≥ 500 ms
+- **short**: squeeze held < 1 s
+- **long**: squeeze held ≥ 1 s
 - **group**: consecutive shorts; a pause ≥ 1.5 s closes the group
 - a **long squeeze during message entry cancels** the current message (error
   buzz confirms the cancel; start over)
+- a **long squeeze on an *empty* message starts the oracle** (see below)
 
 **Output (buzzes)**
 - **dot**: 200 ms buzz · **dash**: 600 ms buzz
@@ -75,6 +76,19 @@ one move, so there is never any ambiguity to resolve.
 3. If the move is a pawn reaching the last rank: promotion signal, answer with
    one group (1=Q 2=N 3=R 4=B).
 
+### Oracle shortcut (machine guesses)
+
+Instead of entering the move, squeeze **one long** before anything else. The
+machine ranks the legal moves with the engine and buzzes its best guess as a
+normal 4-group move (with promotion group if applicable). Answer with one
+group: **1 = that's the move** (it's entered — the guess buzz was the echo),
+**2 = next guess**, anything else (long, timeout) = give up and enter
+manually. You can answer **while the guess is still buzzing** — your first
+squeeze cuts playback short and the answer takes effect immediately. After
+`oracle_guesses` rejections (default 5) it error-buzzes and falls back to
+manual entry. In the opening the opponent's move is usually the
+first or second guess, making a typical entry one long + one short.
+
 ### Recommended move (machine → player)
 
 1. Attention signal, then the four count groups (from-square, to-square).
@@ -90,6 +104,4 @@ goes idle. Reset via the chess-coach service's `reset` do_command.
 
 ## Future extensions (reserved)
 
-- Opening-book shortcuts: a long squeeze *starting* a message switches to book
-  mode with short Huffman codes for common openings.
 - Morse output mode (`output_encoding: "morse"`): squares as morse characters.

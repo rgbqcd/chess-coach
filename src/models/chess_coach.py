@@ -104,6 +104,9 @@ class ViamOutput:
     async def play_groups(self, counts: list[int]) -> None:
         await self.buzzer.do_command({"command": "groups", "counts": counts, "wait": True})
 
+    async def stop(self) -> None:
+        await self.buzzer.do_command({"command": "stop"})
+
 
 class ChessCoachService(GenericService, EasyResource):
     MODEL: ClassVar[Model] = "rgbqcd:chess-playing:chess-coach"
@@ -162,7 +165,8 @@ class ChessCoachService(GenericService, EasyResource):
             message_timeout_s=float(attrs.get("message_timeout_s", 45)),
             confirm_timeout_s=float(attrs.get("confirm_timeout_s", 30)),
             capture_seconds=float(attrs.get("capture_seconds", 3.0)),
-            min_calibration_span=float(attrs.get("min_calibration_span", 100)),
+            min_calibration_span=float(attrs.get("min_calibration_span", 40)),
+            oracle_guesses=int(attrs.get("oracle_guesses", 5)),
             skip_calibration=bool(attrs.get("skip_calibration", False)),
         )
 

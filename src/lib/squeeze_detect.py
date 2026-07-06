@@ -35,7 +35,7 @@ class SqueezeEvent:
 class SqueezeDetector:
     def __init__(
         self,
-        long_press_ms: int = 500,
+        long_press_ms: int = 1000,
         min_press_ms: int = 80,
         on_fraction: float = 0.35,
         off_fraction: float = 0.20,

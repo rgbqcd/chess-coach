@@ -17,7 +17,7 @@
       "model": "rgbqcd:chess-playing:kgoal-boost",
       "attributes": {
         "device_name": "Boost",
-        "long_press_ms": 500,
+        "long_press_ms": 1000,
         "min_press_ms": 80,
         "on_fraction": 0.35,
         "off_fraction": 0.2

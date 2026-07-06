@@ -65,6 +65,9 @@ class PrintOutput:
     async def play_signal(self, name):
         print(f"  BZZZ [signal: {name}]")
 
+    async def stop(self):
+        print("  BZZZ [stopped]")
+
     async def play_groups(self, counts):
         hint = ""
         if len(counts) == 4 and all(1 <= c <= 8 for c in counts):

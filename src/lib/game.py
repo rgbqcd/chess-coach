@@ -32,7 +32,8 @@ HINTS = {
     "calibrate_squeeze": "SQUEEZE HARD — capturing peak (3 s)",
     "wait_color": "squeeze your color: 1 short = white, 2 shorts = black",
     "confirm_color": "confirm the color echo: 1 = yes, 2 = no",
-    "wait_opponent_input": "enter the opponent's move: from-square then to-square (file·rank·file·rank)",
+    "wait_opponent_input": "enter the opponent's move: from-square then to-square — or 1 long squeeze = machine guesses",
+    "oracle": "machine guessing: 1 = that's it, 2 = next, long = manual — answering mid-buzz cuts it short",
     "confirm_move": "confirm the move echo: 1 = yes, 2 = no",
     "promotion_query": "promotion piece: 1=Q 2=N 3=R 4=B",
     "engine_think": "engine thinking…",
@@ -52,15 +53,24 @@ class InputSource(Protocol):
 class OutputSink(Protocol):
     async def play_signal(self, name: str) -> None: ...
     async def play_groups(self, counts: list[int]) -> None: ...
+    async def stop(self) -> None: ...
 
 
 class Engine(Protocol):
     async def best_move(self, board: chess.Board) -> chess.Move: ...
+    async def ranked_moves(self, board: chess.Board, n: int) -> list[chess.Move]: ...
     async def close(self) -> None: ...
 
 
 class InputCancelled(Exception):
     """User held a long squeeze: abandon the current message."""
+
+    def __init__(self, shorts: int = 0):
+        self.shorts = shorts  # shorts already squeezed in the current group
+
+
+class OracleRequested(Exception):
+    """Long squeeze on an empty message: the machine should guess the move."""
 
 
 class MoveBypass(Exception):
@@ -74,8 +84,9 @@ class CoachConfig:
     message_timeout_s: float = 45.0  # max wait between groups of one message
     confirm_timeout_s: float = 30.0
     capture_seconds: float = 3.0
-    min_calibration_span: float = 100.0  # pressure counts (device range 0-2000)
+    min_calibration_span: float = 40.0  # pressure counts (device range 0-2000)
     skip_calibration: bool = False
+    oracle_guesses: int = 5  # ranked guesses offered before falling back to manual entry
     practice: bool = False  # AI opponent: user must correctly enter its moves
     initial_color: bool | None = None  # preset user color (skips color select)
 
@@ -96,6 +107,11 @@ class StockfishEngine:
         if result.move is None:
             raise RuntimeError("engine returned no move")
         return result.move
+
+    async def ranked_moves(self, board: chess.Board, n: int) -> list[chess.Move]:
+        n = min(n, board.legal_moves.count())
+        infos = await self._engine.analyse(board, chess.engine.Limit(time=self._time_s), multipv=n)
+        return [info["pv"][0] for info in infos if info.get("pv")]
 
     async def close(self) -> None:
         try:
@@ -183,20 +199,26 @@ class ChessCoach:
                     return n
                 continue
             if ev == "long":
-                self._log("squeeze_long", "cancel/replay")
-                raise InputCancelled()
+                self._log("squeeze_long", "long")
+                raise InputCancelled(shorts=n)
             if ev == "short":
                 n += 1
             elif ev.startswith("move:"):
                 raise MoveBypass(ev[5:])
 
-    async def _read_message(self) -> list[int]:
-        """One 4-group message. First squeeze waits indefinitely."""
+    async def _read_message(self, allow_oracle: bool = False) -> list[int]:
+        """One 4-group message. First squeeze waits indefinitely. A long squeeze
+        on a still-empty message raises OracleRequested (when allowed)."""
         while True:
             try:
                 groups = []
                 for i in range(4):
-                    n = await self._read_group(None if i == 0 else self.cfg.message_timeout_s)
+                    try:
+                        n = await self._read_group(None if i == 0 else self.cfg.message_timeout_s)
+                    except InputCancelled as exc:
+                        if allow_oracle and i == 0 and exc.shorts == 0:
+                            raise OracleRequested() from None
+                        raise
                     if n == 0:  # inter-group timeout: user stalled out
                         raise InputCancelled()
                     groups.append(n)
@@ -240,6 +262,11 @@ class ChessCoach:
             squeezed = await self.input.capture(self.cfg.capture_seconds)
             self.state = "calibrate"
             baseline, peak = relaxed["median"], squeezed["p95"]
+            self._log(
+                "calibrate",
+                f"baseline {baseline:.0f}, peak {peak:.0f}, span {peak - baseline:.0f}"
+                f" (need {self.cfg.min_calibration_span:.0f})",
+            )
             if peak - baseline >= self.cfg.min_calibration_span:
                 await self.input.set_calibration(baseline, peak)
                 await self._signal("ack")
@@ -273,11 +300,74 @@ class ChessCoach:
                 return encoding.PROMO_COUNTS[n]
             await self._signal("error")
 
+    async def _buzz_move(self, enc: encoding.MoveEncoding) -> None:
+        for group in enc.all_groups():
+            await self._groups_out(group)
+
+    async def _interrupt_playback(self, play: asyncio.Task) -> None:
+        play.cancel()
+        try:
+            await play
+        except asyncio.CancelledError:
+            pass
+        await self.output.stop()
+        self._log("oracle", "interrupted")
+
+    async def _oracle_answer(self, play: asyncio.Task) -> int:
+        """Read one answer group; the first squeeze cuts guess playback short.
+        Returns the count (0 = timeout, -1 = long/bypass = bail)."""
+        n = 0
+        while True:
+            ev = await self.input.next_event(self.cfg.group_gap_s if n else self.cfg.confirm_timeout_s)
+            if ev is not None and not play.done():
+                await self._interrupt_playback(play)
+            if ev is None or (ev == "group_break" and n):
+                if n:
+                    self._log("squeeze_group", str(n))
+                return n
+            if ev == "group_break":
+                continue
+            if ev == "long" or ev.startswith("move:"):
+                self._log("squeeze_long", "long")
+                return -1
+            if ev == "short":
+                n += 1
+
+    async def _oracle_cycle(self) -> chess.Move | None:
+        """Buzz engine-ranked guesses; 1 = accept, 2 = next, anything else = bail.
+        Answers may arrive mid-buzz (playback is cut short). Returns the
+        accepted move, or None to fall back to manual entry."""
+        self.state = "oracle"
+        guesses = await self.engine.ranked_moves(self.board, self.cfg.oracle_guesses)
+        for move in guesses:
+            self._log("oracle", f"guess: {self.board.san(move)}")
+            play = asyncio.create_task(self._buzz_move(encoding.encode_move(self.board, move)))
+            try:
+                n = await self._oracle_answer(play)
+            finally:
+                if not play.done():
+                    await self._interrupt_playback(play)
+                elif not play.cancelled():
+                    await play  # surface playback errors
+            if n == 1:
+                return move
+            if n != 2:
+                return None  # long / timeout / garbage: back to manual
+        await self._signal("error")  # guesses exhausted
+        return None
+
     async def input_opponent_move(self) -> chess.Move:
         while True:
             self.state = "wait_opponent_input"
             try:
-                groups = await self._read_message()
+                groups = await self._read_message(allow_oracle=True)
+            except OracleRequested:
+                move = await self._oracle_cycle()
+                if move is not None and move in self.board.legal_moves:
+                    self.pending_candidates = []
+                    self._log("decoded", f"opponent: {self.board.san(move)}")
+                    return move
+                continue
             except MoveBypass as bypass:
                 move = chess.Move.from_uci(bypass.uci)
                 if move in self.board.legal_moves:

@@ -82,7 +82,7 @@ The chess brain is [Stockfish](https://stockfishchess.org) over UCI via
 
 Full spec: [docs/PROTOCOL.md](docs/PROTOCOL.md). The short version:
 
-**Squeezes (you → machine).** A squeeze under 500 ms is a *short*, over is a
+**Squeezes (you → machine).** A squeeze under 1 second is a *short*, over is a
 *long*. Consecutive shorts form a **count group**; a pause of ~1.5 s closes
 the group. A long squeeze cancels whatever you were entering (or asks for a
 replay of the last recommendation).
@@ -105,6 +105,13 @@ So e2e4 is `5 · 2 · 5 · 4`; the knight g1→f3 is `7 · 1 · 6 · 3`. A from/
 pair identifies exactly one move, so nothing is ever ambiguous. Castling is
 the king moving two squares (`5 · 1 · 7 · 1` = O-O for white); en passant is
 just the capturing pawn's from/to.
+
+**Oracle shortcut:** entering ~18 squeezes per opponent move gets old, so a
+**single long squeeze** instead asks the machine to guess: it buzzes its
+engine-ranked best guesses one at a time and you answer 1 = that's it /
+2 = next / long = I'll enter it manually — answering mid-buzz cuts the guess
+short, so a wrong guess costs only as long as it takes you to recognize it. Opening moves are nearly always the
+first or second guess — a typical entry drops to one long + one short.
 
 **Session flow:** ready signal → calibration (relax 3 s, squeeze 3 s — sets
 your personal pressure thresholds) → color select (1 short = white, 2 =
@@ -374,7 +381,7 @@ dependency names):
 | `device_name` | `"Boost"` | BLE advertised name to scan for |
 | `device_address` | `""` | connect by address instead of scanning |
 | `scan_timeout_s` | `15` | BLE scan timeout per connect attempt |
-| `long_press_ms` | `500` | squeeze ≥ this = long |
+| `long_press_ms` | `1000` | squeeze ≥ this = long |
 | `min_press_ms` | `80` | squeezes shorter than this are debounced |
 | `on_fraction` / `off_fraction` | `0.35` / `0.20` | hysteresis thresholds as a fraction of calibrated span |
 | `ema_alpha` | `0.02` | baseline drift tracking rate (0–1) |
@@ -399,11 +406,12 @@ dependency names):
 | `engine_time_s` | `1.0` | think time per move |
 | `practice_mode` | `false` | AI opponent mode (see above) |
 | `practice_restart_delay_s` | `2` | pause before the next practice game |
+| `oracle_guesses` | `5` | engine guesses offered on a long-squeeze shortcut before falling back |
 | `group_gap_ms` | `1500` | input pause that closes a count group |
 | `message_timeout_s` | `45` | max wait between groups of one message |
 | `confirm_timeout_s` | `30` | wait for confirm/ack answers |
 | `capture_seconds` | `3` | length of each calibration capture |
-| `min_calibration_span` | `100` | required relaxed→squeezed pressure span |
+| `min_calibration_span` | `40` | required relaxed→squeezed pressure span |
 | `input_poll_ms` | `100` | how often the coach polls the sensor for events |
 | `auto_start` | `true` | start a session on boot |
 | `skip_calibration` | `false` | skip the calibration phase |

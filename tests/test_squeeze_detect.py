@@ -34,7 +34,7 @@ def test_short_squeeze():
 
 def test_long_squeeze():
     d = calibrated_detector()
-    events = feed(d, [(100, 1.0), (600, 0.7), (100, 1.0)])
+    events = feed(d, [(100, 1.0), (600, 1.3), (100, 1.0)])
     assert [e.kind for e in events] == ["long"]
 
 

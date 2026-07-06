@@ -80,7 +80,7 @@ class KgoalBoost(Sensor, EasyResource):
 
         old = self.detector
         self.detector = SqueezeDetector(
-            long_press_ms=int(attrs.get("long_press_ms", 500)),
+            long_press_ms=int(attrs.get("long_press_ms", 1000)),
             min_press_ms=int(attrs.get("min_press_ms", 80)),
             on_fraction=float(attrs.get("on_fraction", 0.35)),
             off_fraction=float(attrs.get("off_fraction", 0.20)),

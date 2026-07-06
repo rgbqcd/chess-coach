@@ -39,13 +39,28 @@ class ScriptedOutput:
     async def play_groups(self, counts):
         self.played.append(("groups", list(counts)))
 
+    async def stop(self):
+        self.played.append(("stop",))
+
+
+class SlowOutput(ScriptedOutput):
+    """play_groups never finishes on its own: forces the interrupt path."""
+
+    async def play_groups(self, counts):
+        self.played.append(("groups", list(counts)))
+        await __import__("asyncio").sleep(60)
+
 
 class ScriptedEngine:
-    def __init__(self, ucis):
+    def __init__(self, ucis, ranked=()):
         self.ucis = list(ucis)
+        self.ranked = list(ranked)
 
     async def best_move(self, board):
         return chess.Move.from_uci(self.ucis.pop(0))
+
+    async def ranked_moves(self, board, n):
+        return [chess.Move.from_uci(u) for u in self.ranked[:n]]
 
     async def close(self):
         pass
@@ -62,8 +77,8 @@ def groups(*counts):
 CFG = CoachConfig(skip_calibration=True)
 
 
-def make_coach(events, ucis=(), board=None, user_color=None, cfg=CFG):
-    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(ucis), cfg)
+def make_coach(events, ucis=(), board=None, user_color=None, cfg=CFG, ranked=()):
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine(ucis, ranked), cfg)
     if board is not None:
         coach.board = board
     if user_color is not None:
@@ -230,6 +245,70 @@ async def test_practice_snapshot_exposes_expected_move():
     snap = coach.snapshot()
     assert snap["practice"] is True
     assert snap["expected_move"] == {"uci": "e2e4", "san": "e4"}
+
+
+async def test_oracle_accepts_second_guess():
+    # long squeeze -> oracle buzzes e2e4 (reject: 2) then d2d4 (accept: 1)
+    events = ["long"] + groups(2) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["e2e4", "d2d4", "g1f3"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("d2d4")
+    played = coach.output.played
+    assert ("groups", [5, 2, 5, 4]) in played  # first guess buzzed
+    assert ("groups", [4, 2, 4, 4]) in played  # second guess buzzed
+
+
+async def test_oracle_bail_to_manual():
+    # long -> guess buzzed -> long again bails -> manual 4-group entry works
+    events = ["long"] + ["long"] + groups(5, 2, 5, 4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["d2d4"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+
+
+async def test_oracle_exhausted_falls_back():
+    # reject both guesses -> error signal -> manual entry
+    events = ["long"] + groups(2) + groups(2) + groups(5, 2, 5, 4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["d2d4", "g1f3"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+    assert ("signal", "error") in coach.output.played
+
+
+async def test_long_after_shorts_still_cancels_not_oracle():
+    # shorts already squeezed: long = cancel (error), NOT an oracle request
+    events = ["short", "short", "long"] + groups(5, 2, 5, 4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK, ranked=["d2d4"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+    assert ("signal", "error") in coach.output.played
+    assert not [e for e in coach.log if e["kind"] == "oracle"]
+
+
+async def test_oracle_answer_interrupts_playback():
+    # answers arrive while the guess is still buzzing: playback is cut short
+    events = ["long"] + groups(2) + groups(1)  # oracle; next; accept
+    coach = ChessCoach(ScriptedInput(events), SlowOutput(), ScriptedEngine([], ranked=["e2e4", "d2d4"]), CFG)
+    coach.board = __import__("chess").Board()
+    coach.user_color = chess.BLACK
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("d2d4")
+    played = coach.output.played
+    assert played.count(("stop",)) == 2  # both guesses were interrupted
+    assert ("groups", [5, 2, 5, 4]) in played and ("groups", [4, 2, 4, 4]) in played
+    assert [e["detail"] for e in coach.log if e["kind"] == "oracle"].count("interrupted") == 2
+
+
+async def test_oracle_guess_includes_promotion():
+    board = chess.Board("8/P7/8/8/8/8/8/k1K5 w - - 0 1")
+    events = ["long"] + groups(1)  # accept first guess
+    coach = make_coach(events, board=board, user_color=chess.BLACK, ranked=["a7a8q"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("a7a8q")
+    assert ("groups", [1]) in coach.output.played  # promotion count group buzzed
 
 
 async def test_calibration_sets_span():
