@@ -135,8 +135,9 @@ Central, Hush (with battery), kGoal (battery + live pressure), Stockfish, and
 the game session — each row green, or red with the exact fix ("open Intiface
 Central and press the play button", "power the kGoal on; make sure Intiface
 isn't holding 'Boost'"). Action buttons let a helper drive setup while the
-player stays hands-free: **test buzz**, **rescan hush**, **start/restart
-game**, plus the practice toggle. When every row is green it collapses to
+player stays hands-free: **test buzz**, **rescan hush**, **restart game**
+(keeps your calibration), **re-calibrate** (restarts with a fresh
+relax/squeeze calibration), plus the practice toggle. When every row is green it collapses to
 "all systems go" and the game view below is live (~3 Hz):
 
 - **Hint banner** — what the machine expects *right now*, in plain language

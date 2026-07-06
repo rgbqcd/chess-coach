@@ -342,6 +342,7 @@ class ChessCoach:
         for move in guesses:
             self._log("oracle", f"guess: {self.board.san(move)}")
             play = asyncio.create_task(self._buzz_move(encoding.encode_move(self.board, move)))
+            await asyncio.sleep(0)  # let playback begin before listening for answers
             try:
                 n = await self._oracle_answer(play)
             finally:

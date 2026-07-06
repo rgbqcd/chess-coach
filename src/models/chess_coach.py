@@ -172,7 +172,7 @@ class ChessCoachService(GenericService, EasyResource):
 
         self._stop_session()
         if self.auto_start:
-            self._session_task = asyncio.create_task(self._run_session())
+            self._start_session()
 
     # ---- session lifecycle ----
 
@@ -183,19 +183,40 @@ class ChessCoachService(GenericService, EasyResource):
             self.input.stop()
         self._session_task = None
 
-    async def _run_session(self) -> None:
+    def _start_session(self, force_calibration: bool = False) -> None:
+        self._stop_session()
+        self._session_task = asyncio.create_task(self._run_session(force_calibration))
+
+    async def _skip_calibration(self, first_game: bool, force: bool) -> bool:
+        if force and first_game:
+            return False
+        if not first_game or self.coach_cfg.skip_calibration:
+            return True
+        # skip automatically when the sensor still holds a calibration
+        try:
+            assert self.sensor is not None
+            readings = await self.sensor.get_readings()
+            return bool(readings.get("calibrated"))
+        except Exception:
+            return False
+
+    async def _run_session(self, force_calibration: bool = False) -> None:
         assert self.sensor is not None and self.buzzer is not None
         engine = None
         self.input = ViamInput(self.sensor, self.input_poll_s)
         self.input.start()
         last_color = None
+        first_game = True
         session_log: deque = deque(maxlen=300)
         try:
             engine = await StockfishEngine.create(self.stockfish_path, self.engine_skill, self.engine_time_s)
             self.engine = engine
             while True:
                 cfg = dataclasses.replace(
-                    self.coach_cfg, practice=self.practice_mode, initial_color=last_color
+                    self.coach_cfg,
+                    practice=self.practice_mode,
+                    initial_color=last_color,
+                    skip_calibration=await self._skip_calibration(first_game, force_calibration),
                 )
                 self.coach = ChessCoach(self.input, ViamOutput(self.buzzer), engine, cfg, log=session_log)
                 LOGGER.info("chess session starting (practice=%s)", self.practice_mode)
@@ -208,8 +229,7 @@ class ChessCoachService(GenericService, EasyResource):
                     break
                 # practice: fresh game, same color, no re-calibration
                 last_color = self.coach.user_color
-                cfg = dataclasses.replace(cfg, skip_calibration=True)
-                self.coach_cfg = dataclasses.replace(self.coach_cfg, skip_calibration=True)
+                first_game = False
                 self.input.clear()
                 await asyncio.sleep(self.practice_restart_delay_s)
         except asyncio.CancelledError:
@@ -242,13 +262,15 @@ class ChessCoachService(GenericService, EasyResource):
 
         if cmd == "set_practice":
             self.practice_mode = bool(command.get("on", True))
-            self._stop_session()
-            self._session_task = asyncio.create_task(self._run_session())
+            self._start_session()
             return {"ok": True, "practice_mode": self.practice_mode}
 
         if cmd in ("reset", "start"):
-            self._stop_session()
-            self._session_task = asyncio.create_task(self._run_session())
+            self._start_session()
+            return {"ok": True}
+
+        if cmd == "recalibrate":
+            self._start_session(force_calibration=True)
             return {"ok": True}
 
         if cmd == "set_board":
