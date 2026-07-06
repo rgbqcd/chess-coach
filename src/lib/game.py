@@ -33,7 +33,7 @@ HINTS = {
     "wait_color": "squeeze your color: 1 short = white, 2 shorts = black",
     "confirm_color": "confirm the color echo: 1 = yes, 2 = no",
     "wait_opponent_input": "enter the opponent's move: from-square then to-square — or 1 long squeeze = machine guesses",
-    "oracle": "machine guessing: 1 = that's it, 2 = next, long = manual — answering mid-buzz cuts it short",
+    "oracle": "machine guessing: 1 yes · 2 next · 3/4 slide file a/h-ward · 5 same from · 6 same to · long = manual",
     "confirm_move": "confirm the move echo: 1 = yes, 2 = no",
     "promotion_query": "promotion piece: 1=Q 2=N 3=R 4=B",
     "engine_think": "engine thinking…",
@@ -118,6 +118,19 @@ class StockfishEngine:
             await self._engine.quit()
         except chess.engine.EngineError:
             pass
+
+
+def _shift_file(move: chess.Move, delta: int) -> chess.Move | None:
+    """The same move translated `delta` files (toward a<0, toward h>0)."""
+    ff = chess.square_file(move.from_square) + delta
+    tf = chess.square_file(move.to_square) + delta
+    if not (0 <= ff <= 7 and 0 <= tf <= 7):
+        return None
+    return chess.Move(
+        chess.square(ff, chess.square_rank(move.from_square)),
+        chess.square(tf, chess.square_rank(move.to_square)),
+        promotion=move.promotion,
+    )
 
 
 class ChessCoach:
@@ -334,12 +347,21 @@ class ChessCoach:
                 n += 1
 
     async def _oracle_cycle(self) -> chess.Move | None:
-        """Buzz engine-ranked guesses; 1 = accept, 2 = next, anything else = bail.
-        Answers may arrive mid-buzz (playback is cut short). Returns the
-        accepted move, or None to fall back to manual entry."""
+        """Buzz engine-ranked guesses. Answers (may arrive mid-buzz):
+        1 = accept · 2 = next guess · 3/4 = same move slid one file toward
+        a/h · 5 = keep the from-square, re-guess · 6 = keep the to-square,
+        re-guess · anything else = fall back to manual entry."""
         self.state = "oracle"
-        guesses = await self.engine.ranked_moves(self.board, self.cfg.oracle_guesses)
-        for move in guesses:
+        ranking = await self.engine.ranked_moves(self.board, self.board.legal_moves.count())
+        if not ranking:
+            return None
+        queue = deque(ranking[: self.cfg.oracle_guesses])
+        buzzed: set[chess.Move] = set()
+        while queue:
+            move = queue.popleft()
+            if move in buzzed:
+                continue
+            buzzed.add(move)
             self._log("oracle", f"guess: {self.board.san(move)}")
             play = asyncio.create_task(self._buzz_move(encoding.encode_move(self.board, move)))
             await asyncio.sleep(0)  # let playback begin before listening for answers
@@ -352,9 +374,31 @@ class ChessCoach:
                     await play  # surface playback errors
             if n == 1:
                 return move
-            if n != 2:
-                return None  # long / timeout / garbage: back to manual
-        await self._signal("error")  # guesses exhausted
+            if n == 2:
+                continue
+            if n in (3, 4):
+                shifted = _shift_file(move, -1 if n == 3 else 1)
+                if shifted is not None and shifted in self.board.legal_moves:
+                    self._log("oracle", f"slide -> {self.board.san(shifted)}")
+                    buzzed.discard(shifted)
+                    queue.appendleft(shifted)
+                else:
+                    await self._signal("error")
+                    buzzed.discard(move)
+                    queue.appendleft(move)  # re-offer the same guess
+                continue
+            if n in (5, 6):
+                attr = "from_square" if n == 5 else "to_square"
+                kept = getattr(move, attr)
+                matches = [m for m in ranking if getattr(m, attr) == kept and m not in buzzed]
+                self._log("oracle", f"keep {'from' if n == 5 else 'to'}-square: {chess.square_name(kept)}")
+                if matches:
+                    queue = deque(matches)
+                else:
+                    await self._signal("error")
+                continue
+            return None  # long / timeout / garbage: back to manual
+        await self._signal("error")  # candidates exhausted
         return None
 
     async def input_opponent_move(self) -> chess.Move:

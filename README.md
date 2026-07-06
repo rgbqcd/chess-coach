@@ -110,7 +110,11 @@ just the capturing pawn's from/to.
 **single long squeeze** instead asks the machine to guess: it buzzes its
 engine-ranked best guesses one at a time and you answer 1 = that's it /
 2 = next / long = I'll enter it manually — answering mid-buzz cuts the guess
-short, so a wrong guess costs only as long as it takes you to recognize it. Opening moves are nearly always the
+short, so a wrong guess costs only as long as it takes you to recognize it.
+Close-but-wrong guesses can be *edited* instead of rejected: 3/4 slides the
+same move one file toward a/h (the classic "right pawn move, wrong pawn"),
+5 keeps the from-square and re-guesses the destination, 6 keeps the
+to-square and re-guesses the piece. Opening moves are nearly always the
 first or second guess — a typical entry drops to one long + one short.
 
 **Session flow:** ready signal → calibration (relax 3 s, squeeze 3 s — sets

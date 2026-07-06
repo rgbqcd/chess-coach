@@ -81,13 +81,26 @@ one move, so there is never any ambiguity to resolve.
 Instead of entering the move, squeeze **one long** before anything else. The
 machine ranks the legal moves with the engine and buzzes its best guess as a
 normal 4-group move (with promotion group if applicable). Answer with one
-group: **1 = that's the move** (it's entered — the guess buzz was the echo),
-**2 = next guess**, anything else (long, timeout) = give up and enter
-manually. You can answer **while the guess is still buzzing** — your first
-squeeze cuts playback short and the answer takes effect immediately. After
-`oracle_guesses` rejections (default 5) it error-buzzes and falls back to
-manual entry. In the opening the opponent's move is usually the
-first or second guess, making a typical entry one long + one short.
+group:
+
+| answer | meaning |
+|---|---|
+| 1 | that's the move — entered (the guess buzz was the echo) |
+| 2 | next guess |
+| 3 | close! same move slid **one file toward the a-file** |
+| 4 | close! same move slid **one file toward the h-file** |
+| 5 | the **from-square is right** — re-guess moves from there |
+| 6 | the **to-square is right** — re-guess moves landing there |
+| long / timeout | give up, enter manually |
+
+Edits chain: a slid or re-guessed move buzzes like any guess and takes the
+same answers (slide twice for two files, etc.). An impossible edit (slide off
+the board / no other move from that square) error-buzzes and re-offers the
+current guess. You can answer **while the guess is still buzzing** — your
+first squeeze cuts playback short. After the guess pool runs dry it
+error-buzzes and falls back to manual entry. In the opening the opponent's
+move is usually the first or second guess, making a typical entry one long +
+one short.
 
 ### Recommended move (machine → player)
 

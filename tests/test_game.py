@@ -302,6 +302,56 @@ async def test_oracle_answer_interrupts_playback():
     assert [e["detail"] for e in coach.log if e["kind"] == "oracle"].count("interrupted") == 2
 
 
+async def test_oracle_slide_file():
+    # guessed d2d4, actual e2e4: answer 4 (toward h) slides the move over
+    events = ["long"] + groups(4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["d2d4", "g1f3"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+    assert ("groups", [4, 2, 4, 4]) in coach.output.played  # original guess
+    assert ("groups", [5, 2, 5, 4]) in coach.output.played  # slid guess
+
+
+async def test_oracle_slide_composes():
+    # two files off: 4, 4 walks c4 -> d4 -> e4
+    events = ["long"] + groups(4) + groups(4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["c2c4"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+
+
+async def test_oracle_slide_off_board_errors_and_reoffers():
+    # guessed h2h4: sliding toward h falls off the board -> error, same guess again
+    events = ["long"] + groups(4) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["h2h4"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("h2h4")
+    assert ("signal", "error") in coach.output.played
+
+
+async def test_oracle_keep_from_square():
+    # guessed e2e3 but the pawn went two squares: 5 = re-guess from e2
+    events = ["long"] + groups(5) + groups(1)
+    coach = make_coach(events, board=chess.Board(), user_color=chess.BLACK,
+                       ranked=["e2e3", "d2d4", "e2e4", "g1f3"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")  # d2d4 skipped: wrong from-square
+
+
+async def test_oracle_keep_to_square():
+    # two knights can reach d2; guessed the wrong one: 6 = re-guess to d2,
+    # skipping ranked moves to other squares
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/8/5N2/PPP1PPPP/RNBQKB1R w KQkq - 0 1")
+    events = ["long"] + groups(6) + groups(1)
+    coach = make_coach(events, board=board, user_color=chess.BLACK,
+                       ranked=["b1d2", "a2a3", "f3d2"])
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("f3d2")  # a2a3 skipped: wrong to-square
+
+
 async def test_oracle_guess_includes_promotion():
     board = chess.Board("8/P7/8/8/8/8/8/k1K5 w - - 0 1")
     events = ["long"] + groups(1)  # accept first guess
