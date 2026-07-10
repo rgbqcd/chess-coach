@@ -20,6 +20,20 @@ Free and open source under the [MIT license](LICENSE), standing on the
 shoulders of free and open source giants: buttplug.io, Viam, Stockfish,
 python-chess, and bleak.
 
+## Contents
+
+- [The building blocks](#the-building-blocks) — [hardware](#hardware), [buttplug.io](#buttplugio), [Viam](#viam)
+- [The haptic protocol](#the-haptic-protocol) — squeezes, buzzes, move encoding, the oracle
+- [The practice dashboard](#the-practice-dashboard) — [blind-read](#blind-read-mode), [online relay](#online-relay-mode), and [practice](#ai-opponent-practice-mode) modes
+- [Remote monitoring](#remote-monitoring)
+- [Setup](#setup)
+- [Your first game](#your-first-game) — full walkthrough, cold start to checkmate
+- [Playing on Lichess](#playing-on-lichess) — hands-free online games, no helper
+- [Try the hardware without viam-server](#try-the-hardware-without-viam-server)
+- [Run the robot](#run-the-robot) — includes the full configuration reference
+- [Tests](#tests)
+- [License](#license)
+
 ## The building blocks
 
 ### Hardware
@@ -193,18 +207,11 @@ the dashboard exists for the helper (and for practicing until then). Pair the
 helper with the remote-monitoring setup and they don't even need to be in the
 room.
 
-**Or skip the helper entirely — the Lichess bridge.** Set `lichess_token` on
-the coach (a [personal access token](https://lichess.org/account/oauth/token)
-with the `board:play` scope) alongside `relay_mode: true`, and the coach
-connects to the [Lichess Board API](https://lichess.org/api#tag/Board) — the
-same sanctioned interface DGT boards use to play as a normal human account.
-Start or accept a game on lichess (any device); the coach picks it up
-automatically: your color comes from the game, the opponent's moves stream in
-and buzz you directly, and your squeezed moves are posted back — nobody
-clicks anything. Joining mid-game works (the board syncs to the current
-position), off-board endings (resignation, flag, draw) buzz the result, and
-the dashboard shows the game id. Board API etiquette: use it for
-Rapid/Classical/Correspondence, not bullet.
+**Or skip the helper entirely — the Lichess bridge.** With a `lichess_token`
+on the coach, opponent moves stream straight from the
+[Lichess Board API](https://lichess.org/api#tag/Board) and your squeezed
+moves are posted back automatically — nobody clicks anything. Full setup
+walkthrough: [Playing on Lichess](#playing-on-lichess).
 
 ### AI-opponent practice mode
 
@@ -391,6 +398,58 @@ real opponent blind.
 If squeezes misregister along the way (shorts reading as longs, groups
 splitting), the fix is config, not practice: see the tuning attributes below.
 
+## Playing on Lichess
+
+The fully hands-free endgame: a real online game with no helper and no
+engine. Once the walkthrough above feels comfortable:
+
+### 1. Get a Board API token
+
+Create a [personal access token](https://lichess.org/account/oauth/token)
+on your lichess account with the **`board:play`** scope (one page, one
+click — no app registration). This is the same sanctioned mechanism DGT
+e-boards use; it plays as your normal human account.
+
+### 2. Configure
+
+Copy a config and add the token to the coach (local copies are gitignored,
+so the token never lands in git):
+
+```sh
+cp viam.json viam.lichess.local.json
+# edit viam.lichess.local.json:
+#   - set the module executable_path to <this repo>/run.sh
+#   - on the coach service attributes:
+#       "relay_mode": true,
+#       "lichess_token": "lip_..."
+```
+
+`stockfish_path` is ignored in relay mode — no engine runs, which is exactly
+what keeps this legitimate (the oracle shortcut is disabled too).
+
+### 3. Launch and play
+
+```sh
+scripts/up.sh viam.lichess.local.json
+```
+
+Calibrate as usual, then just **start or accept a game on lichess.org from
+any device** — the dashboard shows `lichess: <gameid>` when the coach picks
+it up. Your color comes from the game (no color-select squeeze). From there:
+
+- Opponent moves stream in and **buzz you** (attention → four groups → check
+  signal); squeeze 1 short when you've got it, long to rehear.
+- **Squeeze your reply** (from-square, to-square, confirm the echo) — it's
+  posted to lichess the moment you confirm; the feed logs
+  `sent to lichess: e2e4`.
+- Resignations, flag falls, and draw agreements buzz win/loss/draw even
+  though they never touch the board. Then the coach waits for your next game.
+
+Joining works mid-game too (the board syncs to the current position — handy
+after a viam-server restart). Etiquette: the Board API is intended for
+**Rapid, Classical, and Correspondence** — squeeze-speed isn't
+bullet-compatible anyway.
+
 ## Try the hardware without viam-server
 
 ```sh
@@ -489,3 +548,8 @@ Covers squeeze detection (drift, debounce, hysteresis, short/long boundaries),
 the move codec (from/to decoding, promotion collapse, castling, en passant,
 illegal/out-of-range input), and the full game loop (fool's mate, echo
 reject/retry, cancel/replay, promotion query, practice mode, activity log).
+
+## License
+
+[MIT](LICENSE) — do whatever you like with it. If you build something even
+more cursed on top of this, the author would genuinely love to hear about it.
