@@ -392,6 +392,67 @@ async def test_board_ack_squeeze_does_not_ack():
     assert [e for e in coach.log if e["kind"] == "board_ack"]
 
 
+RELAY_CFG = CoachConfig(skip_calibration=True, attention_pause_s=0.0, relay=True, initial_color=chess.WHITE)
+
+
+async def test_relay_full_exchange():
+    # your move squeezed in (e2e4), then the opponent's online move (e7e5)
+    # clicked in, buzzed, and acked with 1 short
+    events = groups(5, 2, 5, 4) + groups(1) + ["board:e7e5"] + groups(1)
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine([]), RELAY_CFG)
+    # drive two turns of the session loop manually
+    coach.user_color = chess.WHITE
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+    coach.board.push(move)
+    reply = await coach.receive_online_move()
+    assert reply == chess.Move.from_uci("e7e5")
+    played = coach.output.played
+    assert ("signal", "attention") in played
+    assert ("groups", [5, 7, 5, 5]) in played  # opponent move buzzed
+    kinds = [(e["kind"], e["detail"]) for e in coach.log]
+    assert ("decoded", "you: e4") in kinds
+    assert ("online", "opponent played: e5") in kinds
+
+
+async def test_relay_oracle_disabled():
+    # a long squeeze on an empty message is a plain cancel in relay mode
+    events = ["long"] + groups(5, 2, 5, 4) + groups(1)
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine([]), RELAY_CFG)
+    coach.user_color = chess.WHITE
+    move = await coach.input_opponent_move()
+    assert move == chess.Move.from_uci("e2e4")
+    assert ("signal", "error") in coach.output.played  # long = cancel, not oracle
+    assert not [e for e in coach.log if e["kind"] == "oracle"]
+
+
+async def test_relay_illegal_online_move_rejected():
+    events = ["board:a1a5", "board:g8f6"] + groups(1)
+    board = chess.Board("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1")
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine([]), RELAY_CFG)
+    coach.board = board
+    coach.user_color = chess.WHITE
+    move = await coach.receive_online_move()
+    assert move == chess.Move.from_uci("g8f6")
+    assert [e for e in coach.log if e["kind"] == "relay" and "illegal" in e["detail"]]
+    assert ("signal", "error") in coach.output.played
+
+
+async def test_relay_run_session_sets_relay_move():
+    # two-ply exchange: your e4 squeezed in, opponent's e5 clicked in, then script ends
+    events = (groups(5, 2, 5, 4) + groups(1)   # your e4 + confirm
+              + ["board:e7e5"] + groups(1))    # opponent e5 + ack
+    coach = ChessCoach(ScriptedInput(events), ScriptedOutput(), ScriptedEngine([]), RELAY_CFG)
+    task = __import__("asyncio").ensure_future(coach.run_session())
+    try:
+        await task
+    except AssertionError:  # script exhausted after the exchange
+        pass
+    task.cancel()
+    assert [m.uci() for m in coach.board.move_stack] == ["e2e4", "e7e5"]
+    assert coach.relay_move_san is None  # cleared once the opponent moved
+
+
 async def test_calibration_sets_span():
     coach = make_coach([], board=chess.Board())
     await coach.calibrate()

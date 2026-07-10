@@ -31,6 +31,7 @@ from viam.services.generic import Generic as GenericService
 from viam.utils import ValueTypes, struct_to_dict
 
 from ..lib.game import ChessCoach, CoachConfig, StockfishEngine
+from ..lib.lichess import LichessBridge, opponent_moves_to_apply
 
 LOGGER = getLogger(__name__)
 
@@ -123,6 +124,10 @@ class ChessCoachService(GenericService, EasyResource):
         self.auto_start = True
         self.practice_mode = False
         self.board_ack = False
+        self.relay_mode = False
+        self.lichess_token = ""
+        self.lichess_url = "https://lichess.org"
+        self.lichess_game_id = ""
         self.stats = {"games": 0, "practice_fails": 0}
         self.coach_cfg = CoachConfig()
         self.coach: Optional[ChessCoach] = None
@@ -162,6 +167,9 @@ class ChessCoachService(GenericService, EasyResource):
         self.auto_start = bool(attrs.get("auto_start", True))
         self.practice_mode = bool(attrs.get("practice_mode", False))
         self.board_ack = bool(attrs.get("board_ack", False))
+        self.relay_mode = bool(attrs.get("relay_mode", False))
+        self.lichess_token = str(attrs.get("lichess_token", ""))
+        self.lichess_url = str(attrs.get("lichess_url", "https://lichess.org"))
         self.coach_cfg = CoachConfig(
             group_gap_s=float(attrs.get("group_gap_ms", 1500)) / 1000,
             message_timeout_s=float(attrs.get("message_timeout_s", 45)),
@@ -212,13 +220,18 @@ class ChessCoachService(GenericService, EasyResource):
         first_game = True
         session_log: deque = deque(maxlen=300)
         try:
-            engine = await StockfishEngine.create(self.stockfish_path, self.engine_skill, self.engine_time_s)
-            self.engine = engine
+            if self.relay_mode and self.lichess_token:
+                await self._run_lichess(session_log, force_calibration)
+                return
+            if not self.relay_mode:
+                engine = await StockfishEngine.create(self.stockfish_path, self.engine_skill, self.engine_time_s)
+                self.engine = engine
             while True:
                 cfg = dataclasses.replace(
                     self.coach_cfg,
-                    practice=self.practice_mode,
+                    practice=self.practice_mode and not self.relay_mode,
                     board_ack=self.board_ack,
+                    relay=self.relay_mode,
                     initial_color=last_color,
                     skip_calibration=await self._skip_calibration(first_game, force_calibration),
                 )
@@ -229,7 +242,7 @@ class ChessCoachService(GenericService, EasyResource):
                 self.stats["games"] += 1
                 if result == "practice_fail":
                     self.stats["practice_fails"] += 1
-                if not self.practice_mode:
+                if not self.practice_mode or self.relay_mode:
                     break
                 # practice: fresh game, same color, no re-calibration
                 last_color = self.coach.user_color
@@ -246,6 +259,119 @@ class ChessCoachService(GenericService, EasyResource):
                 await engine.close()
                 self.engine = None
 
+    # ---- lichess relay ----
+
+    async def _run_lichess(self, session_log: deque, force_calibration: bool) -> None:
+        bridge = LichessBridge(self.lichess_token, self.lichess_url)
+        backoff = 2.0
+        try:
+            while True:
+                try:
+                    LOGGER.info("lichess: connected, waiting for a game (start or accept one on lichess)")
+                    async for event in bridge.stream_events():
+                        backoff = 2.0
+                        if event.get("type") != "gameStart":
+                            continue
+                        game = event.get("game", {})
+                        game_id = str(game.get("gameId") or game.get("id") or "")
+                        if not game_id:
+                            continue
+                        our_white = game.get("color") == "white"
+                        await self._play_lichess_game(bridge, game_id, our_white, session_log, force_calibration)
+                        force_calibration = False
+                except asyncio.CancelledError:
+                    raise
+                except Exception as err:
+                    LOGGER.warning("lichess stream failed (%s); retrying in %.0fs", err, backoff)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60.0)
+        finally:
+            self.lichess_game_id = ""
+            await bridge.close()
+
+    async def _play_lichess_game(self, bridge: LichessBridge, game_id: str, our_white: bool, session_log: deque, force_calibration: bool) -> None:
+        LOGGER.info("lichess game %s: we are %s", game_id, "white" if our_white else "black")
+        self.lichess_game_id = game_id
+        assert self.input is not None and self.buzzer is not None
+        cfg = dataclasses.replace(
+            self.coach_cfg,
+            relay=True,
+            board_ack=self.board_ack,
+            initial_color=our_white,  # chess.WHITE is True
+            skip_calibration=await self._skip_calibration(True, force_calibration),
+        )
+        coach = ChessCoach(self.input, ViamOutput(self.buzzer), None, cfg, log=session_log)
+        self.coach = coach
+        self.input.clear()
+        applied = 0
+        session: Optional[asyncio.Task] = None
+        poster = asyncio.create_task(self._post_outbox(bridge, game_id, coach))
+        status, winner = "started", None
+        try:
+            async for msg in bridge.stream_game(game_id):
+                if msg.get("type") == "gameFull":
+                    state = msg.get("state", {})
+                elif msg.get("type") == "gameState":
+                    state = msg
+                else:
+                    continue
+                moves = [m for m in str(state.get("moves", "")).split() if m]
+                if session is None:
+                    # join in progress: bring the board up to date, then start
+                    for uci in moves:
+                        coach.board.push(chess.Move.from_uci(uci))
+                    applied = len(moves)
+                    session = asyncio.create_task(coach.run_session())
+                else:
+                    inject, applied = opponent_moves_to_apply(moves, applied, our_white)
+                    for uci in inject:
+                        self.input.inject(f"board:{uci}")
+                status = str(state.get("status", "started"))
+                winner = state.get("winner")
+                if status != "started":
+                    break
+        finally:
+            poster.cancel()
+            ended_naturally = session is not None and session.done() and not session.cancelled()
+            if session is not None and not session.done():
+                session.cancel()
+            if session is not None:
+                try:
+                    await session
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    LOGGER.exception("lichess session crashed")
+            self.lichess_game_id = ""
+        self.stats["games"] += 1
+        LOGGER.info("lichess game %s over: %s (winner: %s)", game_id, status, winner)
+        if not ended_naturally and status not in ("started", "aborted"):
+            # game ended off-board (resignation, flag, draw agreement): buzz the result
+            signal = "draw" if winner not in ("white", "black") else ("win" if (winner == "white") == our_white else "loss")
+            coach._log("online", f"game over: {status}" + (f", winner: {winner}" if winner else ""))
+            try:
+                await ViamOutput(self.buzzer).play_signal(signal)
+            except Exception:
+                LOGGER.debug("result signal failed", exc_info=True)
+
+    async def _post_outbox(self, bridge: LichessBridge, game_id: str, coach: ChessCoach) -> None:
+        while True:
+            uci = await coach.outbox.get()
+            ok = False
+            try:
+                ok = await bridge.post_move(game_id, uci)
+            except Exception as err:
+                LOGGER.warning("lichess move post failed: %s", err)
+            if ok:
+                coach._log("relay", f"sent to lichess: {uci}")
+            else:
+                coach._log("relay", f"FAILED to send {uci} to lichess")
+                try:
+                    assert self.buzzer is not None
+                    await ViamOutput(self.buzzer).play_signal("error")
+                except Exception:
+                    pass
+
     # ---- Viam API ----
 
     async def do_command(self, command: Mapping[str, ValueTypes], *, timeout=None, **kwargs) -> Mapping[str, ValueTypes]:
@@ -258,6 +384,9 @@ class ChessCoachService(GenericService, EasyResource):
                 "session_running": running,
                 "practice_mode": self.practice_mode,
                 "board_ack_mode": self.board_ack,
+                "relay_mode": self.relay_mode,
+                "lichess": bool(self.lichess_token),
+                "lichess_game": self.lichess_game_id,
                 "stats": dict(self.stats),
                 "engine_ok": self.engine is not None,
                 "stockfish_path": self.stockfish_path,
@@ -274,6 +403,11 @@ class ChessCoachService(GenericService, EasyResource):
             self.board_ack = bool(command.get("on", True))
             self._start_session()
             return {"ok": True, "board_ack": self.board_ack}
+
+        if cmd == "set_relay":
+            self.relay_mode = bool(command.get("on", True))
+            self._start_session()
+            return {"ok": True, "relay_mode": self.relay_mode}
 
         if cmd == "board_ack":
             if self.input is None:

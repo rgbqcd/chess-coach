@@ -118,6 +118,18 @@ you must prove you read the buzz by clicking the move on the dashboard board
 recommendation; a correct click plays the move and reveals it in the feed.
 Long squeeze still replays on demand.
 
+## Online relay mode
+
+With `relay_mode` on there is no engine: the machine is a pure haptic relay
+for a real (online) game. The opponent's move is entered on the dashboard
+board and **delivered to you** exactly like a recommendation (attention →
+pause → four groups → check signal; 1 short = got it, long = replay). Your
+reply is a normal squeezed move message (oracle disabled — no engine, no
+assistance) and is shown on the dashboard for a helper to play online — or,
+with `lichess_token` set, exchanged directly with lichess.org over the Board
+API (opponent moves stream in and buzz automatically; your moves are posted
+back; off-board endings buzz win/loss/draw).
+
 ## Game end
 
 Win / loss / draw signal (from your color's perspective), then the session

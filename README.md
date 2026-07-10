@@ -172,6 +172,40 @@ feed, and the recommendation replays. A long squeeze replays it any time.
 This is the output-direction twin of practice mode: practice trains squeezing
 moves *in*, blind read trains hearing moves *out*.
 
+### Online relay mode
+
+The mode the whole system graduates toward: **playing a real online game
+hands-free**. Toggle **online relay: on** (or set `relay_mode: true`) and
+Stockfish disconnects entirely — no engine runs, so this is *your* game, not
+computer assistance. The loop becomes:
+
+1. A helper (watching your online game) **clicks the opponent's move** on the
+   dashboard board — it buzzes into you (attention → four groups → check
+   signal if applicable); squeeze 1 short when you've got it, long to rehear.
+2. **You squeeze your reply** (normal from/to entry with echo + confirm — the
+   oracle is disabled in this mode, since engine-ranked guesses would be
+   engine assistance).
+3. Your move appears prominently on the dashboard ("▶ play online: e4") for
+   the helper to play on the online board. Repeat.
+
+If you can hold the position in your head, you never need to see the board —
+the dashboard exists for the helper (and for practicing until then). Pair the
+helper with the remote-monitoring setup and they don't even need to be in the
+room.
+
+**Or skip the helper entirely — the Lichess bridge.** Set `lichess_token` on
+the coach (a [personal access token](https://lichess.org/account/oauth/token)
+with the `board:play` scope) alongside `relay_mode: true`, and the coach
+connects to the [Lichess Board API](https://lichess.org/api#tag/Board) — the
+same sanctioned interface DGT boards use to play as a normal human account.
+Start or accept a game on lichess (any device); the coach picks it up
+automatically: your color comes from the game, the opponent's moves stream in
+and buzz you directly, and your squeezed moves are posted back — nobody
+clicks anything. Joining mid-game works (the board syncs to the current
+position), off-board endings (resignation, flag, draw) buzz the result, and
+the dashboard shows the game id. Board API etiquette: use it for
+Rapid/Classical/Correspondence, not bullet.
+
 ### AI-opponent practice mode
 
 Toggle **practice: on** in the dashboard header (or start with
@@ -422,6 +456,9 @@ dependency names):
 | `engine_time_s` | `1.0` | think time per move |
 | `practice_mode` | `false` | AI opponent mode (see above) |
 | `board_ack` | `false` | blind-read mode: recommendation hidden, acked by clicking the board |
+| `relay_mode` | `false` | online relay: no engine; opponent moves clicked in, your moves squeezed out |
+| `lichess_token` | `""` | Board-API token: relay directly with lichess, no helper needed |
+| `lichess_url` | `https://lichess.org` | Lichess server (override for testing) |
 | `practice_restart_delay_s` | `2` | pause before the next practice game |
 | `attention_pause_ms` | `1500` | silence between the attention signal and the move buzzes |
 | `oracle_guesses` | `5` | engine guesses offered on a long-squeeze shortcut before falling back |

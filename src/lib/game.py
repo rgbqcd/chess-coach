@@ -33,6 +33,8 @@ HINTS = {
     "wait_color": "squeeze your color: 1 short = white, 2 shorts = black",
     "confirm_color": "confirm the color echo: 1 = yes, 2 = no",
     "wait_opponent_input": "enter the opponent's move: from-square then to-square — or 1 long squeeze = machine guesses",
+    "enter_your_move": "squeeze YOUR move: from-square then to-square (the echo will confirm)",
+    "wait_online_move": "waiting for the opponent's online move — click it on the board: from-square, then to-square",
     "oracle": "machine guessing: 1 yes · 2 next · 3/4 slide file a/h-ward · 5 same from · 6 same to · long = manual",
     "confirm_move": "confirm the move echo: 1 = yes, 2 = no",
     "promotion_query": "promotion piece: 1=Q 2=N 3=R 4=B",
@@ -90,6 +92,7 @@ class CoachConfig:
     attention_pause_s: float = 1.5  # silence between the attention signal and the move groups
     oracle_guesses: int = 5  # ranked guesses offered before falling back to manual entry
     board_ack: bool = False  # blind read: recommendation hidden, acked by clicking the dashboard board
+    relay: bool = False  # online relay: no engine; opponent moves clicked in, your moves squeezed out
     practice: bool = False  # AI opponent: user must correctly enter its moves
     initial_color: bool | None = None  # preset user color (skips color select)
 
@@ -159,6 +162,8 @@ class ChessCoach:
         self.last_message: list[int] = []
         self.expected_move: chess.Move | None = None  # practice: the move to enter
         self.expected_san: str | None = None
+        self.relay_move_san: str | None = None  # relay: your move awaiting the helper
+        self.outbox: asyncio.Queue[str] = asyncio.Queue()  # relay: your moves, for a lichess poster
         # a shared log deque lets the activity feed survive practice-game restarts
         self.log: deque = log if log is not None else deque(maxlen=300)
         self._log_seq = int(self.log[-1]["seq"]) if self.log else 0
@@ -189,6 +194,8 @@ class ChessCoach:
             "last_message": list(self.last_message),
             "practice": self.cfg.practice,
             "board_ack": self.cfg.board_ack,
+            "relay": self.cfg.relay,
+            "relay_move": self.relay_move_san,
             "expected_move": (
                 {"uci": self.expected_move.uci(), "san": self.expected_san}
                 if self.expected_move is not None
@@ -407,9 +414,9 @@ class ChessCoach:
 
     async def input_opponent_move(self) -> chess.Move:
         while True:
-            self.state = "wait_opponent_input"
+            self.state = "enter_your_move" if self.cfg.relay else "wait_opponent_input"
             try:
-                groups = await self._read_message(allow_oracle=True)
+                groups = await self._read_message(allow_oracle=not self.cfg.relay)
             except OracleRequested:
                 move = await self._oracle_cycle()
                 if move is not None and move in self.board.legal_moves:
@@ -443,7 +450,7 @@ class ChessCoach:
             move = chosen.move(promotion)
             if move in self.board.legal_moves:
                 self.pending_candidates = []
-                self._log("decoded", f"opponent: {self.board.san(move)}")
+                self._log("decoded", f"{'you' if self.cfg.relay else 'opponent'}: {self.board.san(move)}")
                 return move
             await self._signal("error")
 
@@ -480,11 +487,38 @@ class ChessCoach:
                 await self._signal("error")
                 return False  # replay the buzz
 
-    async def output_user_move(self, move: chess.Move) -> None:
-        """Buzz the recommendation, then wait for the ack (squeeze or board click)."""
+    async def receive_online_move(self) -> chess.Move:
+        """Relay mode: wait for the opponent's move (clicked on the dashboard or
+        injected), buzz it to the player, wait for the ack. Squeezes are ignored
+        while waiting."""
+        while True:
+            self.state = "wait_online_move"
+            ev = await self.input.next_event(None)
+            uci = ev[6:] if ev and ev.startswith("board:") else ev[5:] if ev and ev.startswith("move:") else None
+            if uci is None:
+                continue
+            try:
+                move = chess.Move.from_uci(uci)
+            except ValueError:
+                move = None
+            if move is None or move not in self.board.legal_moves:
+                self._log("relay", f"illegal online move: {uci}")
+                await self._signal("error")
+                continue
+            hidden = self.cfg.board_ack
+            await self.output_user_move(
+                move, kind="online",
+                text="opponent played: ●●● (read the buzz)" if hidden else f"opponent played: {self.board.san(move)}",
+            )
+            return move
+
+    async def output_user_move(self, move: chess.Move, kind: str = "engine", text: str | None = None) -> None:
+        """Buzz a move to the player, then wait for the ack (squeeze or board click)."""
         self.state = "output_move"
         hidden = self.cfg.board_ack
-        self._log("engine", "recommend: ●●● (read the buzz)" if hidden else f"recommend: {self.board.san(move)}")
+        if text is None:
+            text = "recommend: ●●● (read the buzz)" if hidden else f"recommend: {self.board.san(move)}"
+        self._log(kind, text)
         enc = encoding.encode_move(self.board, move)
         while True:
             await self._signal("attention")
@@ -515,7 +549,16 @@ class ChessCoach:
             await self._signal("ack")
 
         while not self.board.is_game_over():
-            if self.board.turn == self.user_color:
+            if self.cfg.relay:
+                if self.board.turn == self.user_color:
+                    move = await self.input_opponent_move()
+                    self.relay_move_san = self.board.san(move)
+                    self._log("relay", f"play online: {self.relay_move_san}")
+                    self.outbox.put_nowait(move.uci())
+                else:
+                    move = await self.receive_online_move()
+                    self.relay_move_san = None
+            elif self.board.turn == self.user_color:
                 self.state = "engine_think"
                 move = await self.engine.best_move(self.board)
                 await self.output_user_move(move)

@@ -134,6 +134,7 @@
   <span class="chip" id="chip-buzzer"><span class="dot"></span>Hush</span>
   <button class="ctl" id="btn-practice" onclick="togglePractice()">practice: —</button>
   <button class="ctl" id="btn-blind" onclick="toggleBlind()">blind read: —</button>
+  <button class="ctl" id="btn-relay" onclick="toggleRelay()">online relay: —</button>
   <button class="ctl" id="btn-newgame" onclick="sendCommand({command:'reset'})">new game</button>
 </header>
 
@@ -164,6 +165,7 @@
         <span id="meta-turn">turn: —</span>
         <span id="meta-msg">last input: —</span>
         <span id="meta-stats"></span>
+        <span id="meta-lichess"></span>
       </div>
       <div id="moves">—</div>
     </div>
@@ -197,6 +199,7 @@ const KIND_COLOR = {
   decoded: "var(--violet)", engine: "var(--red)", move: "var(--ink)",
   practice: "var(--yellow)", practice_fail: "var(--critical)", calibrate: "var(--aqua)", oracle: "var(--violet)",
   board_ack: "var(--good)", read_fail: "var(--critical)",
+  relay: "var(--aqua)", online: "var(--blue)",
 };
 const KIND_LABEL = {
   buzz_signal: "buzz sig", buzz_groups: "buzz grp",
@@ -204,15 +207,18 @@ const KIND_LABEL = {
   decoded: "decoded", engine: "engine", move: "move",
   practice: "practice", practice_fail: "FAIL", calibrate: "calibrate", oracle: "oracle",
   board_ack: "read ✓", read_fail: "read ✗",
+  relay: "relay", online: "online",
 };
 let practiceMode = null;
 let blindMode = null;
 let currentState = "";
 let selSquare = null;
 function toggleBlind() { sendCommand({command: "set_board_ack", on: !blindMode}); }
+let relayMode = null;
+function toggleRelay() { sendCommand({command: "set_relay", on: !relayMode}); }
 function onBoardClick(e) {
   const sq = e.target.closest(".sq");
-  if (!sq || !sq.dataset.sq || currentState !== "wait_board_ack") return;
+  if (!sq || !sq.dataset.sq || !["wait_board_ack", "wait_online_move"].includes(currentState)) return;
   const name = sq.dataset.sq;
   if (!selSquare) {
     selSquare = name;
@@ -319,7 +325,7 @@ function renderChecklist(s) {
     {what: "kGoal", ok: sen.connected === true,
      how: "power it on (squeeze to wake); make sure Intiface is NOT holding 'Boost'",
      extra: sen.connected === true ? battery(sen.battery) + ` · pressure ${Math.round(sen.pressure || 0)}` : ""},
-    {what: "Stockfish", ok: c.engine_ok === true || c.stockfish_found === true,
+    {what: relayMode ? "Stockfish (not needed: relay)" : "Stockfish", ok: relayMode || c.engine_ok === true || c.stockfish_found === true,
      how: "brew install stockfish, or set stockfish_path on the coach"},
     {what: "game session", ok: c.session_running === true,
      how: "press 'restart game'"},
@@ -338,6 +344,7 @@ function renderChecklist(s) {
   $("setup-actions").style.display = hideActions ? "none" : "";
   $("btn-practice").style.display = hideActions ? "none" : "";
   $("btn-blind").style.display = hideActions ? "none" : "";
+  $("btn-relay").style.display = hideActions ? "none" : "";
   $("btn-newgame").style.display = hideActions ? "none" : "";
 }
 
@@ -375,17 +382,23 @@ async function tick() {
   blindMode = !!c.board_ack_mode;
   if (currentState !== c.state) { selSquare = null; }
   currentState = c.state || "";
-  $("board").className = currentState === "wait_board_ack" && !s.read_only ? "clickable" : "";
+  $("board").className = ["wait_board_ack", "wait_online_move"].includes(currentState) && !s.read_only ? "clickable" : "";
   const blindBtn = $("btn-blind");
   blindBtn.textContent = "blind read: " + (blindMode ? "on" : "off");
   blindBtn.className = "ctl" + (blindMode ? " on" : "");
+  relayMode = !!c.relay_mode;
+  const relayBtn = $("btn-relay");
+  relayBtn.textContent = "online relay: " + (relayMode ? "on" : "off");
+  relayBtn.className = "ctl" + (relayMode ? " on" : "");
   const btn = $("btn-practice");
   btn.textContent = "practice: " + (practiceMode ? "on" : "off");
   btn.className = "ctl" + (practiceMode ? " on" : "");
   const expected = c.expected_move;
-  $("expected").textContent = expected ? `opponent played ${expected.san} — squeeze it in` : "";
+  $("expected").textContent = expected ? `opponent played ${expected.san} — squeeze it in`
+    : c.relay_move ? `▶ play online: ${c.relay_move}` : "";
   const stats = c.stats || {};
   $("meta-stats").textContent = practiceMode ? `practice: ${stats.games || 0} games · ${stats.practice_fails || 0} fails` : "";
+  $("meta-lichess").textContent = relayMode && c.lichess ? ("lichess: " + (c.lichess_game || "waiting for a game…")) : "";
 
   const hist = c.move_history || [];
   renderBoard(c.fen, hist[hist.length - 1], expected && expected.uci);
